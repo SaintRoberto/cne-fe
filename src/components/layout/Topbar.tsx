@@ -3,11 +3,34 @@ import { Bell, LogOut, Menu, UserRound } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useNotifications } from '../../context/NotificationsContext';
 
+function meaningfulText(value: unknown) {
+  const text = String(value || '').trim();
+  return text && text !== '--' ? text : '';
+}
+
 export function Topbar({ onMenu }: { onMenu: () => void }) {
-  const { user, logout } = useAuth();
+  const { user, datosLogin, logout } = useAuth();
   const { notifications, unreadCount, markAsRead } = useNotifications();
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const notificationRef = useRef<HTMLDivElement>(null);
+  const contextChips = [
+    {
+      className: 'chip--green',
+      label: meaningfulText(datosLogin?.coe_abreviatura) || meaningfulText(datosLogin?.coe_nombre),
+    },
+    {
+      className: 'chip--purple',
+      label: meaningfulText(datosLogin?.provincia_nombre),
+    },
+    {
+      className: 'chip--red',
+      label: meaningfulText(datosLogin?.canton_nombre),
+    },
+    {
+      className: 'chip--blue',
+      label: meaningfulText(datosLogin?.mesa_nombre) || meaningfulText(datosLogin?.mesa_grupo_nombre),
+    },
+  ].filter((chip) => chip.label);
 
   useEffect(() => {
     function handlePointerDown(event: PointerEvent) {
@@ -27,12 +50,13 @@ export function Topbar({ onMenu }: { onMenu: () => void }) {
         <h1>Sistemas COE - CNE</h1>
       </div>
       <div className="topbar__actions">
-        <div className="context-chips" aria-label="Contexto DPA">
-          <span className="chip chip--green">COE-M</span>
-          <span className="chip chip--purple">Manabi</span>
-          <span className="chip chip--red">Manta</span>
-          <span className="chip chip--blue">Agua Y Ambiente</span>
-        </div>
+        {contextChips.length ? (
+          <div className="context-chips" aria-label="Contexto DPA">
+            {contextChips.map((chip) => (
+              <span key={`${chip.className}-${chip.label}`} className={`chip ${chip.className}`}>{chip.label}</span>
+            ))}
+          </div>
+        ) : null}
         <div className="notification-menu" ref={notificationRef}>
           <button
             className="icon-button notification-button"
@@ -65,7 +89,7 @@ export function Topbar({ onMenu }: { onMenu: () => void }) {
           ) : null}
         </div>
         <button className="icon-button topbar__user" aria-label="Abrir perfil"><UserRound size={18} /></button>
-        <div className="topbar__profile"><span>{user?.role}</span></div>
+        <div className="topbar__profile"><span>{datosLogin?.perfil_nombre || user?.role}</span></div>
         <button className="icon-button topbar__logout" onClick={logout} aria-label="Cerrar sesion"><LogOut size={19} /></button>
       </div>
     </header>

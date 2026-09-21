@@ -12,6 +12,7 @@ type CatalogItem = {
   id: number;
   nombre?: string;
   descripcion?: string;
+  dpa?: string;
   provincia_id?: number;
   canton_id?: number;
   parroquia_id?: number;
@@ -86,11 +87,49 @@ function unwrapArray<T>(payload: unknown): T[] {
   if (Array.isArray(payload)) return payload as T[];
   const record = payload as Record<string, unknown>;
   const candidate = record?.data || record?.items || record?.rows || record?.result;
-  return Array.isArray(candidate) ? candidate as T[] : [];
+  if (Array.isArray(candidate)) return candidate as T[];
+  return record && typeof record === 'object' && 'id' in record ? [record as T] : [];
 }
 
 function nameOf(item: CatalogItem) {
   return item.nombre || item.descripcion || String(item.id);
+}
+
+function toNumericId(value: unknown) {
+  const numericValue = Number(value);
+  return Number.isFinite(numericValue) && numericValue > 0 ? numericValue : undefined;
+}
+
+function optionValueOf(item: CatalogItem) {
+  return toNumericId(item.id);
+}
+
+function sameText(left?: string, right?: string) {
+  return Boolean(left && right && left.trim().toLocaleLowerCase() === right.trim().toLocaleLowerCase());
+}
+
+function selectedNameOf(item: EventoItem, nameKey: 'provincia_nombre' | 'canton_nombre' | 'parroquia_nombre', fallbackKey: 'provincia' | 'canton' | 'parroquia') {
+  return String(item[nameKey] || item[fallbackKey] || '').trim();
+}
+
+function resolveCatalogValue(value: unknown, entries: CatalogItem[], selectedName?: string) {
+  const numericValue = toNumericId(value);
+  const matchingEntry = entries.find((entry) => {
+    const optionValue = optionValueOf(entry);
+    return optionValue === numericValue
+      || sameText(nameOf(entry), selectedName);
+  });
+  return matchingEntry ? optionValueOf(matchingEntry) : numericValue;
+}
+
+function selectOptions(entries: CatalogItem[], selectedValue?: number, selectedName?: string) {
+  const options = entries
+    .map((entry) => ({ value: optionValueOf(entry), label: nameOf(entry) }))
+    .filter((option): option is { value: number; label: string } => option.value !== undefined);
+  if (selectedValue !== undefined && selectedName && !options.some((option) => option.value === selectedValue)) {
+    return [{ value: selectedValue, label: selectedName }, ...options];
+  }
+  return options;
 }
 
 async function readJson<T>(response: Response): Promise<T> {
@@ -99,7 +138,7 @@ async function readJson<T>(response: Response): Promise<T> {
 }
 
 export function EventosAdversos() {
-  const { authFetch, datosLogin, selectedEmergenciaId } = useAuth();
+  const { authFetch, datosLogin, loginResponse, selectedEmergenciaId } = useAuth();
   const navigate = useNavigate();
   const [items, setItems] = useState<EventoItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -115,6 +154,7 @@ export function EventosAdversos() {
   const [parroquias, setParroquias] = useState<CatalogItem[]>([]);
 
   const emergenciaId = selectedEmergenciaId || datosLogin?.emergencia_id || 0;
+  const institucionId = Number(datosLogin?.institucion_id || loginResponse?.usuario?.institucion_id || 0);
   const provinciaId = datosLogin?.provincia_id || 0;
   const cantonId = datosLogin?.canton_id || 0;
 
@@ -148,7 +188,7 @@ export function EventosAdversos() {
           loadCatalog<CatalogItem>('/evento-causas'),
           loadCatalog<CatalogItem>('/evento-estados'),
           loadCatalog<CatalogItem>('/evento-origenes'),
-          loadCatalog<CatalogItem>('/evento-tipos'),
+          loadCatalog<CatalogItem>(`/evento-tipos/institucion/${institucionId}`),
           loadCatalog<CatalogItem>('/evento-atencion-estados'),
           loadCatalog<CatalogItem>('/provincias'),
         ]);
@@ -167,7 +207,7 @@ export function EventosAdversos() {
     return () => {
       cancelled = true;
     };
-  }, [loadCatalog]);
+  }, [institucionId, loadCatalog]);
 
   useEffect(() => {
     void loadItems();
@@ -176,36 +216,45 @@ export function EventosAdversos() {
   const loadSubtipos = useCallback(async (tipoId?: number | null) => {
     if (!tipoId) {
       setSubtipos([]);
-      return;
+      return [];
     }
     try {
-      setSubtipos(await loadCatalog<CatalogItem>(`/evento-subtipos/tipo-evento/${tipoId}`));
+      const data = await loadCatalog<CatalogItem>(`/evento-subtipos/tipo-evento/${tipoId}`);
+      setSubtipos(data);
+      return data;
     } catch {
       setSubtipos([]);
+      return [];
     }
   }, [loadCatalog]);
 
   const loadCantones = useCallback(async (nextProvinciaId?: number | null) => {
     if (!nextProvinciaId) {
       setCantones([]);
-      return;
+      return [];
     }
     try {
-      setCantones(await loadCatalog<CatalogItem>(`/cantones/provincia/${nextProvinciaId}`));
+      const data = await loadCatalog<CatalogItem>(`/cantones/provincia/${nextProvinciaId}`);
+      setCantones(data);
+      return data;
     } catch {
       setCantones([]);
+      return [];
     }
   }, [loadCatalog]);
 
   const loadParroquias = useCallback(async (nextCantonId?: number | null) => {
     if (!nextCantonId) {
       setParroquias([]);
-      return;
+      return [];
     }
     try {
-      setParroquias(await loadCatalog<CatalogItem>(`/parroquias/canton/${nextCantonId}`));
+      const data = await loadCatalog<CatalogItem>(`/parroquias/canton/${nextCantonId}`);
+      setParroquias(data);
+      return data;
     } catch {
       setParroquias([]);
+      return [];
     }
   }, [loadCatalog]);
 
@@ -234,15 +283,35 @@ export function EventosAdversos() {
       origen_id: data.evento_origen_id ?? data.origen_id,
       atencion_estado_id: data.evento_atencion_estado_id ?? data.atencion_estado_id,
     };
-    const nextProvinciaId = Number(data.provincia_id || item.provincia_id || 0);
-    const nextCantonId = Number(data.canton_id || item.canton_id || 0);
-    await Promise.all([
+    const provinciaName = selectedNameOf(normalizedItem, 'provincia_nombre', 'provincia');
+    const cantonName = selectedNameOf(normalizedItem, 'canton_nombre', 'canton');
+    const parroquiaName = selectedNameOf(normalizedItem, 'parroquia_nombre', 'parroquia');
+    const nextProvinciaId = resolveCatalogValue(
+      data.provincia_id ?? item.provincia_id,
+      provincias,
+      provinciaName,
+    );
+    const [, nextCantones] = await Promise.all([
       loadSubtipos(Number(normalizedItem.tipo_id || 0)),
       loadCantones(nextProvinciaId),
-      loadParroquias(nextCantonId),
     ]);
-    return normalizedItem;
-  }, [authFetch, loadCantones, loadParroquias, loadSubtipos]);
+    const nextCantonId = resolveCatalogValue(
+      data.canton_id ?? item.canton_id,
+      nextCantones,
+      cantonName,
+    );
+    const nextParroquias = await loadParroquias(nextCantonId);
+    return {
+      ...normalizedItem,
+      provincia_id: nextProvinciaId ?? normalizedItem.provincia_id,
+      canton_id: nextCantonId ?? normalizedItem.canton_id,
+      parroquia_id: resolveCatalogValue(
+        data.parroquia_id ?? item.parroquia_id,
+        nextParroquias,
+        parroquiaName,
+      ) ?? normalizedItem.parroquia_id,
+    };
+  }, [authFetch, loadCantones, loadParroquias, loadSubtipos, provincias]);
 
   const saveItem = useCallback(async (item: EventoItem) => {
     const payload = {
@@ -272,7 +341,6 @@ export function EventosAdversos() {
       [payload.canton_id, 'canton'],
       [payload.parroquia_id, 'parroquia'],
       [payload.evento_tipo_id, 'tipo'],
-      [payload.evento_subtipo_id, 'subtipo'],
       [payload.evento_causa_id, 'causa'],
       [payload.evento_origen_id, 'origen'],
       [payload.latitud, 'latitud'],
@@ -328,6 +396,12 @@ export function EventosAdversos() {
 
   function renderForm(item: EventoItem, setItem: (next: EventoItem) => void, readonly: boolean) {
     const update = (patch: Partial<EventoItem>) => setItem({ ...item, ...patch });
+    const provinciaValue = toNumericId(item.provincia_id);
+    const cantonValue = toNumericId(item.canton_id);
+    const parroquiaValue = toNumericId(item.parroquia_id);
+    const provinciaName = selectedNameOf(item, 'provincia_nombre', 'provincia');
+    const cantonName = selectedNameOf(item, 'canton_nombre', 'canton');
+    const parroquiaName = selectedNameOf(item, 'parroquia_nombre', 'parroquia');
     return (
       <Form layout="vertical" className="event-form">
         <Row gutter={16}>
@@ -361,8 +435,9 @@ export function EventosAdversos() {
             </Form.Item>
           </Col>
           <Col xs={24} md={8}>
-            <Form.Item label="Subtipo" required>
+            <Form.Item label="Subtipo">
               <Select
+                allowClear
                 disabled={readonly}
                 value={item.subtipo_id ?? undefined}
                 options={subtipos.map((entry) => ({ value: entry.id, label: nameOf(entry) }))}
@@ -397,7 +472,7 @@ export function EventosAdversos() {
         <Row gutter={16}>
           <Col xs={24} md={8}>
             <Form.Item label="Provincia" required>
-              <Select disabled={readonly} value={item.provincia_id || provinciaId || undefined} options={provincias.map((entry) => ({ value: entry.id || entry.provincia_id, label: nameOf(entry) }))} onChange={(value) => {
+              <Select disabled={readonly} value={provinciaValue} options={selectOptions(provincias, provinciaValue, provinciaName)} onChange={(value) => {
                 update({ provincia_id: value, canton_id: null, parroquia_id: null });
                 void loadCantones(value);
                 setParroquias([]);
@@ -406,7 +481,7 @@ export function EventosAdversos() {
           </Col>
           <Col xs={24} md={8}>
             <Form.Item label="Cantón" required>
-              <Select disabled={readonly} value={item.canton_id || cantonId || undefined} options={cantones.map((entry) => ({ value: entry.id || entry.canton_id, label: nameOf(entry) }))} onChange={(value) => {
+              <Select disabled={readonly} value={cantonValue} options={selectOptions(cantones, cantonValue, cantonName)} onChange={(value) => {
                 update({ canton_id: value, parroquia_id: null });
                 void loadParroquias(value);
               }} />
@@ -414,7 +489,7 @@ export function EventosAdversos() {
           </Col>
           <Col xs={24} md={8}>
             <Form.Item label="Parroquia" required>
-              <Select disabled={readonly} value={item.parroquia_id ?? undefined} options={parroquias.map((entry) => ({ value: entry.id || entry.parroquia_id, label: nameOf(entry) }))} onChange={(value) => update({ parroquia_id: value })} />
+              <Select disabled={readonly} value={parroquiaValue} options={selectOptions(parroquias, parroquiaValue, parroquiaName)} onChange={(value) => update({ parroquia_id: value })} />
             </Form.Item>
           </Col>
            <Col xs={24} md={12}>

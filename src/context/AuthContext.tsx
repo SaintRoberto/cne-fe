@@ -7,17 +7,26 @@ export type LoginResponse = {
   userId?: number;
   usuario_id?: number;
   id?: number;
+  usuario?: Record<string, unknown>;
   [key: string]: unknown;
 };
 
 export type DatosLogin = {
   usuario_id?: number;
+  institucion_id?: number;
+  usuario_institucion_id?: number;
+  usuario_descripcion?: string;
+  usuario_login?: string;
   perfil_id?: number;
+  perfil_nombre?: string;
   coe_id?: number;
   coe_nombre?: string;
+  coe_abreviatura?: string;
   mesa_id?: number;
   mesa_grupo_id?: number;
+  mesa_grupo_nombre?: string;
   mesa_nombre?: string;
+  mesa_siglas?: string;
   emergencia_id?: number;
   provincia_id?: number;
   provincia_nombre?: string;
@@ -54,6 +63,7 @@ const EMERGENCY_KEY = 'selectedEmergenciaId';
 
 const demoDatosLogin: DatosLogin = {
   usuario_id: 1,
+  institucion_id: 1,
   perfil_id: 1,
   coe_id: 2,
   coe_nombre: 'COE Cantonal',
@@ -79,14 +89,21 @@ const demoUser: User = {
 
 function buildUser(datos: DatosLogin | null): User | null {
   if (!datos) return null;
-  const fullName = `${datos.nombres || ''} ${datos.apellidos || ''}`.trim();
-  const coe = datos.coe_nombre || 'COE';
-  const canton = datos.canton_nombre ? ` ${datos.canton_nombre}` : '';
-  const mesa = datos.mesa_nombre ? ` ${datos.mesa_nombre}` : '';
-  const label = `${coe}${canton}${mesa}`.trim();
+  const cleanText = (value: unknown) => String(value || '').trim();
+  const meaningfulText = (value: unknown) => {
+    const text = cleanText(value);
+    return text && text !== '--' ? text : '';
+  };
+  const fullName = `${meaningfulText(datos.nombres)} ${meaningfulText(datos.apellidos)}`.trim()
+    || meaningfulText(datos.usuario_descripcion)
+    || meaningfulText(datos.usuario_login);
+  const coe = meaningfulText(datos.coe_abreviatura) || meaningfulText(datos.coe_nombre) || 'COE';
+  const provinceOrCanton = meaningfulText(datos.canton_nombre) || meaningfulText(datos.provincia_nombre);
+  const mesa = meaningfulText(datos.mesa_nombre) || meaningfulText(datos.mesa_grupo_nombre);
+  const label = [coe, provinceOrCanton, mesa].filter(Boolean).join(' ');
   return {
     name: fullName || label,
-    role: label,
+    role: meaningfulText(datos.perfil_nombre) || label,
     email: String(datos.correo || datos.email || ''),
     initials: (fullName || label).split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase(),
   };
@@ -136,12 +153,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const authFetch = useCallback(async (input: RequestInfo | URL, init: RequestInit = {}) => {
     const token = loginResponse?.token || localStorage.getItem(TOKEN_KEY);
+    const method = String(init.method || 'GET').toUpperCase();
+    const isBodylessMethod = method === 'GET' || method === 'HEAD';
     const headers = new Headers(init.headers);
     if (token && !headers.has('Authorization')) headers.set('Authorization', `Bearer ${token}`);
     // El navegador debe generar el boundary cuando el cuerpo es multipart/form-data.
     // Forzar application/json impide que Flask pueda leer request.files.
-    if (!headers.has('Content-Type') && init.body && !(init.body instanceof FormData)) headers.set('Content-Type', 'application/json');
-    return fetch(input, { ...init, headers });
+    if (isBodylessMethod) headers.delete('Content-Type');
+    if (!isBodylessMethod && !headers.has('Content-Type') && init.body && !(init.body instanceof FormData)) headers.set('Content-Type', 'application/json');
+    const requestInit = isBodylessMethod ? { ...init, method, body: undefined } : { ...init, method };
+    return fetch(input, { ...requestInit, headers });
   }, [loginResponse?.token]);
 
   const setSelectedEmergenciaId = useCallback((id: number | null) => {
@@ -161,14 +182,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       const nextLogin = await parseJsonSafe<LoginResponse>(loginRes);
       if (!nextLogin.token) throw new Error('El servidor no devolvio un token de autenticacion valido.');
-      const userId = nextLogin.userId || nextLogin.usuario_id || nextLogin.id;
+      const loginUsuario = nextLogin.usuario as DatosLogin | undefined;
+      const { token: _token, usuario: _usuario, ...loginDatos } = nextLogin;
+      const userId = loginUsuario?.usuario_id
+        || loginUsuario?.id
+        || nextLogin.usuario_id
+        || nextLogin.userId
+        || nextLogin.id;
       const datosRes = userId
         ? await fetch(`${API_BASE_URL}/usuarios/${userId}/datos-login`, {
             headers: nextLogin.token ? { Authorization: `Bearer ${nextLogin.token}` } : undefined,
           })
         : null;
-      const nextDatos = datosRes?.ok ? await parseJsonSafe<DatosLogin>(datosRes) : {};
-      const mergedDatos = { ...nextDatos, correo: nextDatos.correo || nextDatos.email || username };
+      const datosLogin = datosRes?.ok ? await parseJsonSafe<DatosLogin>(datosRes) : {};
+      const nextDatos = { ...loginDatos, ...loginUsuario, ...datosLogin } as DatosLogin;
+      const mergedDatos = { ...loginUsuario, ...nextDatos, correo: nextDatos.correo || loginUsuario?.correo || nextDatos.email || loginUsuario?.email || username };
       const nextUser = buildUser(mergedDatos) || demoUser;
       const emergencyId = Number(mergedDatos.emergencia_id || localStorage.getItem(EMERGENCY_KEY) || 0) || null;
 
