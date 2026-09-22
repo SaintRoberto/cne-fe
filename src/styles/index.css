@@ -275,6 +275,7 @@ a { color: inherit; text-decoration: none; }
 .evento-afectaciones-row-title small { color: #64748b; font-size: 11px; text-transform: lowercase; }
 .evento-afectacion-cell { display: grid; width: 100%; min-width: 220px; gap: 10px; padding: 10px; border: 1px solid #d7dde6; border-radius: 8px; color: #0f172a; background: #fff; text-align: left; transition: border-color .15s ease, box-shadow .15s ease; }
 .evento-afectacion-cell:hover, .evento-afectacion-cell:focus-visible { outline: none; border-color: #0ea5e9; box-shadow: 0 0 0 3px rgba(14, 165, 233, .18); }
+.evento-afectacion-cell--active { border-color: #0ea5e9; box-shadow: 0 0 0 3px rgba(14, 165, 233, .26), inset 0 0 0 1px #0ea5e9; }
 .evento-afectacion-cell__metric { display: grid; grid-template-columns: 72px minmax(0, 1fr); align-items: center; gap: 8px; }
 .evento-afectacion-cell small { color: #0f172a; font-size: 11px; font-weight: 800; }
 .evento-afectacion-cell__bar { position: relative; display: block; min-width: 0; height: 25px; overflow: hidden; border-radius: 999px; background: #edf2f7; }
@@ -289,10 +290,18 @@ a { color: inherit; text-decoration: none; }
 .evento-afectacion-cell__cost--zero { color: #fff; background: #d1d8e0; }
 .evento-afectacion-cell__cost--positive { color: #fff; background: #58d68d; }
 .evento-afectaciones-placeholder { min-height: 72px; padding: 24px; color: #64748b; background: #f8fafc; text-align: center; }
-.evento-afectaciones-drawer-heading { display: grid; gap: 4px; margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid #e5e7eb; }
-.evento-afectaciones-field { display: grid; width: 100%; gap: 6px; color: #334155; font-size: 13px; font-weight: 700; }
-.evento-afectaciones-details { display: grid; width: 100%; gap: 10px; padding-top: 8px; border-top: 1px solid #e5e7eb; }
+.evento-afectaciones-drawer-body { display: grid; gap: 12px; }
+.evento-afectaciones-editor-card { display: grid; gap: 12px; padding: 16px 13px 13px; border: 1px solid #11a8ff; border-radius: 10px; background: #e8f6ff; box-shadow: 0 1px 2px rgba(15, 23, 42, .04); }
+.evento-afectaciones-editor-card__title { color: #030712; font-size: 14px; line-height: 1.35; }
+.evento-afectaciones-editor-card__fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+.evento-afectaciones-field { display: grid; width: 100%; gap: 5px; color: #64748b; font-size: 12px; font-weight: 500; }
+.evento-afectaciones-field .ant-input-number { border-color: #d7d7d7; border-radius: 5px; background: #fff; }
+.evento-afectaciones-details { display: grid; width: 100%; gap: 10px; margin-top: 4px; padding-top: 12px; border-top: 1px solid #e5e7eb; }
 .evento-afectaciones-details h5 { margin: 0 !important; }
+.evento-afectaciones-details__header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.infra-checklist { display: grid; gap: 8px; max-height: 280px; overflow-y: auto; padding-right: 2px; }
+.infra-checklist__item { display: grid; grid-template-columns: 18px minmax(0, 1fr); align-items: flex-start; gap: 9px; padding: 9px 10px; border: 1px solid #e5e7eb; border-radius: 6px; color: #0f172a; background: #fff; font-size: 13px; line-height: 1.35; }
+.infra-checklist__item span { min-width: 0; overflow-wrap: anywhere; }
 .notification-item { display: block; width: 100%; padding: 0; border: 0; color: inherit; background: transparent; text-align: left; }
 .notification-item--read { opacity: .62; }
 .notification-empty { margin: 0; color: #64748b; font-size: 13px; }
@@ -330,6 +339,9 @@ a { color: inherit; text-decoration: none; }
 @media (max-width: 680px) {
   .evento-afectaciones-page__header, .evento-afectaciones-matrix__toolbar { align-items: stretch; flex-direction: column; }
   .evento-afectaciones-page__header > button, .evento-afectaciones-matrix__toolbar > button { width: 100%; }
+  .evento-afectaciones-editor-card__fields { grid-template-columns: 1fr; }
+  .evento-afectaciones-details__header { align-items: stretch; flex-direction: column; }
+  .evento-afectaciones-details__header .ant-btn { width: 100%; }
   .infra-detail-row { grid-template-columns: 1fr; }
   .event-form .ant-col-md-8 { flex: 0 0 100%; max-width: 100%; }
   .login-page { display: block; }
