@@ -186,6 +186,25 @@ function resolveCatalogValue(value: unknown, entries: CatalogItem[], selectedNam
   return matchingEntry ? optionValueOf(matchingEntry) : numericValue;
 }
 
+function itemLocationName(item: EventoItem, nameKey: 'provincia_nombre' | 'canton_nombre' | 'parroquia_nombre', fallbackKey: 'provincia' | 'canton' | 'parroquia') {
+  return String(item[nameKey] || item[fallbackKey] || '').trim();
+}
+
+function itemInfraestructuraName(item: EventoItem) {
+  return String(item.infraestructura_nombre || item.infraestructura || item.infraestructura_id || '').trim();
+}
+
+function itemTipoName(item: EventoItem) {
+  return String(item.evento_tipo_nombre || item.tipo || '').trim();
+}
+
+function matchesOptionFilter(value: unknown, selectedValue: unknown, itemName: string, entries: CatalogItem[]) {
+  if (selectedValue === undefined || selectedValue === null || selectedValue === '') return true;
+  if (String(value ?? '') === String(selectedValue)) return true;
+  const selectedEntry = entries.find((entry) => String(optionValueOf(entry)) === String(selectedValue));
+  return selectedEntry ? sameText(nameOf(selectedEntry), itemName) : false;
+}
+
 function selectOptions(entries: CatalogItem[], selectedValue?: number, selectedName?: string) {
   const options = entries
     .map((entry) => ({ value: optionValueOf(entry), label: nameOf(entry) }))
@@ -194,6 +213,14 @@ function selectOptions(entries: CatalogItem[], selectedValue?: number, selectedN
     return [{ value: selectedValue, label: selectedName }, ...options];
   }
   return options;
+}
+
+function lockedProvinceOptions(entries: CatalogItem[], selectedValue: number, selectedName?: string) {
+  const matchingProvince = entries.find((entry) => optionValueOf(entry) === selectedValue || sameText(nameOf(entry), selectedName));
+  return [{
+    value: selectedValue,
+    label: matchingProvince ? nameOf(matchingProvince) : selectedName || `Provincia ${selectedValue}`,
+  }];
 }
 
 function uniqueAfectacionVariables(entries: AfectacionRegistroItem[]) {
@@ -216,6 +243,25 @@ function buildSelectOptions<T>(entries: T[], valueOf: (item: T) => Id | number |
     return [{ value: selectedValue, label: selectedLabel }, ...options];
   }
   return options;
+}
+
+function uniqueItemOptions<T>(entries: T[], valueOf: (item: T) => unknown, labelOf: (item: T) => string): Array<{ value: Id; label: string }> {
+  const seen = new Set<string>();
+  return entries
+    .map((entry) => {
+      const value = valueOf(entry);
+      const label = labelOf(entry);
+      if ((typeof value !== 'string' && typeof value !== 'number') || value === '' || !label) return null;
+      return { value, label };
+    })
+    .filter((option): option is { value: Id; label: string } => option !== null)
+    .filter((option) => {
+      const key = `${option.value}-${option.label}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .sort((left, right) => left.label.localeCompare(right.label));
 }
 
 function dateValueOf(item: EventoItem) {
@@ -270,10 +316,20 @@ export function EventosAdversos() {
   const [afectacionVariables, setAfectacionVariables] = useState<AfectacionRegistroItem[]>([]);
   const [infraestructurasLoading, setInfraestructurasLoading] = useState(false);
   const [variablesLoading, setVariablesLoading] = useState(false);
+  const [adminFilters, setAdminFilters] = useState({
+    provincia_id: undefined as number | undefined,
+    canton_id: undefined as number | undefined,
+    parroquia_id: undefined as number | undefined,
+    infraestructura_id: undefined as Id | undefined,
+    tipo_id: undefined as number | undefined,
+  });
+  const [adminCantones, setAdminCantones] = useState<CatalogItem[]>([]);
+  const [adminParroquias, setAdminParroquias] = useState<CatalogItem[]>([]);
 
   const emergenciaId = Number(selectedEmergenciaId || datosLogin?.emergencia_id || localStorage.getItem('selectedEmergenciaId') || 0);
   const institucionId = Number(datosLogin?.institucion_id || loginResponse?.usuario?.institucion_id || 0);
   const provinciaId = Number(datosLogin?.provincia_id || 0);
+  const isAdmin = provinciaId === 0;
   const cantonId = Number(datosLogin?.canton_id || 0);
   const coeId = Number(datosLogin?.coe_id || 0);
   const mesaGrupoId = Number(datosLogin?.mesa_grupo_id || datosLogin?.mesa_id || 0);
@@ -288,7 +344,8 @@ export function EventosAdversos() {
     setLoading(true);
     setError(null);
     try {
-      const response = await authFetch(`${API_BASE_URL}/eventos`);
+      const endpoint = `${API_BASE_URL}/eventos/provincia/${provinciaId}`;
+      const response = await authFetch(endpoint);
       if (!response.ok) throw new Error('No se pudieron cargar los eventos adversos');
       const data = unwrapArray<EventoItem>(await readJson<unknown>(response));
       setItems(data.map((item) => ({ ...item, id: item.id || item.evento_id })));
@@ -298,7 +355,7 @@ export function EventosAdversos() {
     } finally {
       setLoading(false);
     }
-  }, [authFetch]);
+  }, [authFetch, provinciaId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -317,6 +374,13 @@ export function EventosAdversos() {
         setTipos(tiposData);
         setAtencionEstados(atencionData);
         setProvincias(provinciasData);
+        if (isAdmin) {
+          const allCantones = (await Promise.all(provinciasData.map((provincia) => {
+            const nextProvinciaId = optionValueOf(provincia);
+            return nextProvinciaId ? loadCatalog<CatalogItem>(`/cantones/provincia/${nextProvinciaId}`).catch(() => []) : Promise.resolve([]);
+          }))).flat();
+          if (!cancelled) setAdminCantones(allCantones);
+        }
       } catch {
         if (!cancelled) message.warning('No se pudieron cargar todos los catalogos de eventos.');
       }
@@ -325,7 +389,7 @@ export function EventosAdversos() {
     return () => {
       cancelled = true;
     };
-  }, [institucionId, loadCatalog]);
+  }, [institucionId, isAdmin, loadCatalog]);
 
   useEffect(() => {
     void loadItems();
@@ -561,6 +625,71 @@ export function EventosAdversos() {
     { key: 'evento_fecha', header: 'Fecha', render: (item) => dateValueOf(item) ? dayjs(String(dateValueOf(item))).format('DD/MM/YYYY HH:mm') : '' },
   ], [atencionEstados]);
 
+  const adminBaseFilteredItems = useMemo(() => {
+    if (!isAdmin) return items;
+    return items.filter((item) => (
+      matchesOptionFilter(item.provincia_id, adminFilters.provincia_id, itemLocationName(item, 'provincia_nombre', 'provincia'), provincias)
+      && matchesOptionFilter(item.canton_id, adminFilters.canton_id, itemLocationName(item, 'canton_nombre', 'canton'), adminCantones)
+      && matchesOptionFilter(item.parroquia_id, adminFilters.parroquia_id, itemLocationName(item, 'parroquia_nombre', 'parroquia'), adminParroquias)
+      && matchesOptionFilter(item.evento_tipo_id ?? item.tipo_id, adminFilters.tipo_id, itemTipoName(item), tipos)
+    ));
+  }, [adminCantones, adminFilters.canton_id, adminFilters.parroquia_id, adminFilters.provincia_id, adminFilters.tipo_id, adminParroquias, isAdmin, items, provincias, tipos]);
+
+  const adminRecintoOptions = useMemo(() => uniqueItemOptions(
+    adminBaseFilteredItems,
+    (item) => item.infraestructura_id ?? itemInfraestructuraName(item),
+    itemInfraestructuraName,
+  ), [adminBaseFilteredItems]);
+
+  const visibleItems = useMemo(() => {
+    if (!isAdmin) return items;
+    return adminBaseFilteredItems.filter((item) => {
+      if (adminFilters.infraestructura_id === undefined) return true;
+      return String(item.infraestructura_id ?? itemInfraestructuraName(item)) === String(adminFilters.infraestructura_id);
+    });
+  }, [adminBaseFilteredItems, adminFilters.infraestructura_id, isAdmin, items]);
+
+  const reloadAdminCantones = useCallback(async (nextProvinciaId?: number) => {
+    if (nextProvinciaId) {
+      const data = await loadCatalog<CatalogItem>(`/cantones/provincia/${nextProvinciaId}`).catch(() => []);
+      setAdminCantones(data);
+      return;
+    }
+    const allCantones = (await Promise.all(provincias.map((provincia) => {
+      const currentProvinciaId = optionValueOf(provincia);
+      return currentProvinciaId ? loadCatalog<CatalogItem>(`/cantones/provincia/${currentProvinciaId}`).catch(() => []) : Promise.resolve([]);
+    }))).flat();
+    setAdminCantones(allCantones);
+  }, [loadCatalog, provincias]);
+
+  const updateAdminProvincia = useCallback((value?: number) => {
+    setAdminFilters((current) => ({
+      ...current,
+      provincia_id: value,
+      canton_id: undefined,
+      parroquia_id: undefined,
+      infraestructura_id: undefined,
+    }));
+    setAdminParroquias([]);
+    void reloadAdminCantones(value);
+  }, [reloadAdminCantones]);
+
+  const updateAdminCanton = useCallback((value?: number) => {
+    setAdminFilters((current) => ({
+      ...current,
+      canton_id: value,
+      parroquia_id: undefined,
+      infraestructura_id: undefined,
+    }));
+    if (!value) {
+      setAdminParroquias([]);
+      return;
+    }
+    void loadCatalog<CatalogItem>(`/parroquias/canton/${value}`)
+      .then(setAdminParroquias)
+      .catch(() => setAdminParroquias([]));
+  }, [loadCatalog]);
+
   function renderForm(item: EventoItem, setItem: (next: EventoItem) => void, readonly: boolean) {
     const update = (patch: Partial<EventoItem>) => setItem({ ...item, ...patch });
     const provinciaValue = toNumericId(item.provincia_id);
@@ -570,6 +699,11 @@ export function EventosAdversos() {
     const provinciaName = selectedNameOf(item, 'provincia_nombre', 'provincia');
     const cantonName = selectedNameOf(item, 'canton_nombre', 'canton');
     const parroquiaName = selectedNameOf(item, 'parroquia_nombre', 'parroquia');
+    const effectiveProvinciaValue = isAdmin ? provinciaValue : provinciaId || provinciaValue;
+    const effectiveProvinciaName = isAdmin ? provinciaName : provinciaName || String(datosLogin?.provincia_nombre || '');
+    const provinciaOptions = isAdmin
+      ? selectOptions(provincias, effectiveProvinciaValue, effectiveProvinciaName)
+      : effectiveProvinciaValue ? lockedProvinceOptions(provincias, effectiveProvinciaValue, effectiveProvinciaName) : [];
     const selectedInfraestructuraName = String(item.infraestructura_nombre || item.infraestructura || '').trim();
     const selectedAfectacionName = String(item.afectacion_variable_nombre || item.variable_nombre || '').trim();
     return (
@@ -654,7 +788,7 @@ export function EventosAdversos() {
           </Col>
           <Col xs={24} md={8}>
             <Form.Item label="Provincia" required>
-              <Select disabled={readonly} value={provinciaValue} options={selectOptions(provincias, provinciaValue, provinciaName)} onChange={(value) => {
+              <Select disabled={readonly || !isAdmin} value={effectiveProvinciaValue} options={provinciaOptions} onChange={(value) => {
                 update({ provincia_id: value, canton_id: null, parroquia_id: null, infraestructura_id: null, latitud: null, longitud: null });
                 void loadCantones(value);
                 setParroquias([]);
@@ -734,11 +868,109 @@ export function EventosAdversos() {
     <Card className="functional-card">
       {error ? <Alert className="mb-3" type="warning" showIcon message={error} description="Revise VITE_API_URL o disponibilidad del backend." /> : null}
       <Spin spinning={loading}>
+        {isAdmin ? (
+          <div className="eventos-admin-filters">
+            <div className="eventos-admin-filters__header">
+              <div>
+                <span className="eyebrow">Filtros administrativos</span>
+                <strong>Consulta eventos por ubicacion y tipo</strong>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setAdminFilters({
+                    provincia_id: undefined,
+                    canton_id: undefined,
+                    parroquia_id: undefined,
+                    infraestructura_id: undefined,
+                    tipo_id: undefined,
+                  });
+                  setAdminParroquias([]);
+                  void reloadAdminCantones();
+                }}
+              >
+                Limpiar filtros
+              </button>
+            </div>
+            <Row gutter={[12, 12]}>
+              <Col xs={24} md={12} xl={5}>
+                <label>
+                  Provincia
+                  <Select
+                    allowClear
+                    showSearch
+                    value={adminFilters.provincia_id}
+                    options={selectOptions(provincias)}
+                    optionFilterProp="label"
+                    placeholder="Provincia"
+                    onChange={(value) => updateAdminProvincia(toNumericId(value))}
+                  />
+                </label>
+              </Col>
+              <Col xs={24} md={12} xl={5}>
+                <label>
+                  Canton
+                  <Select
+                    allowClear
+                    showSearch
+                    value={adminFilters.canton_id}
+                    options={selectOptions(adminCantones)}
+                    optionFilterProp="label"
+                    placeholder="Canton"
+                    onChange={(value) => updateAdminCanton(toNumericId(value))}
+                  />
+                </label>
+              </Col>
+              <Col xs={24} md={12} xl={5}>
+                <label>
+                  Parroquia
+                  <Select
+                    allowClear
+                    showSearch
+                    value={adminFilters.parroquia_id}
+                    options={selectOptions(adminParroquias)}
+                    optionFilterProp="label"
+                    placeholder="Parroquia"
+                    onChange={(value) => setAdminFilters((current) => ({ ...current, parroquia_id: toNumericId(value), infraestructura_id: undefined }))}
+                  />
+                </label>
+              </Col>
+              <Col xs={24} md={12} xl={5}>
+                <label>
+                  Recinto
+                  <Select
+                    allowClear
+                    showSearch
+                    value={adminFilters.infraestructura_id}
+                    options={adminRecintoOptions}
+                    optionFilterProp="label"
+                    placeholder="Recinto"
+                    onChange={(value) => setAdminFilters((current) => ({ ...current, infraestructura_id: value as Id | undefined }))}
+                  />
+                </label>
+              </Col>
+              <Col xs={24} md={12} xl={4}>
+                <label>
+                  Tipo evento
+                  <Select
+                    allowClear
+                    showSearch
+                    value={adminFilters.tipo_id}
+                    options={selectOptions(tipos)}
+                    optionFilterProp="label"
+                    placeholder="Tipo"
+                    onChange={(value) => setAdminFilters((current) => ({ ...current, tipo_id: toNumericId(value) }))}
+                  />
+                </label>
+              </Col>
+            </Row>
+          </div>
+        ) : null}
         <BaseCRUD
           title="Eventos Adversos"
           itemLabel="evento adverso"
           modalWidth={640}
-          items={items}
+          items={visibleItems}
           columns={columns}
           initialItem={{
             ...emptyEvento,
