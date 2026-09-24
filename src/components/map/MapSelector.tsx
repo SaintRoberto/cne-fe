@@ -1,9 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Button, Input, Space } from 'antd';
 import L from 'leaflet';
-import markerIcon2x from 'leaflet/dist/images/marker-icon-2x.png';
-import markerIcon from 'leaflet/dist/images/marker-icon.png';
-import markerShadow from 'leaflet/dist/images/marker-shadow.png';
 import { MapContainer, Marker, TileLayer, useMapEvents } from 'react-leaflet';
 
 type MapSelectorProps = {
@@ -19,10 +16,11 @@ type NominatimResult = {
   display_name: string;
 };
 
-L.Icon.Default.mergeOptions({
-  iconRetinaUrl: markerIcon2x,
-  iconUrl: markerIcon,
-  shadowUrl: markerShadow,
+const mapPinIcon = L.divIcon({
+  className: 'map-selector__pin-icon',
+  html: '<span class="map-selector__pin" aria-hidden="true"></span>',
+  iconSize: [30, 42],
+  iconAnchor: [15, 40],
 });
 
 function MapClickHandler({ readonly, onChange }: Pick<MapSelectorProps, 'readonly' | 'onChange'>) {
@@ -99,7 +97,7 @@ export function MapSelector({ latitude, longitude, readonly = false, onChange }:
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
         <MapClickHandler readonly={readonly} onChange={onChange} />
-        <Marker position={position} />
+        <Marker position={position} icon={mapPinIcon} />
       </MapContainer>
       <div className="map-selector__coords">
         Latitud: {position[0].toFixed(6)} · Longitud: {position[1].toFixed(6)}

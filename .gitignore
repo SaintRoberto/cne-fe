@@ -6,3 +6,4 @@ vite.config.d.ts
 .playwright-mcp/
 *.png
 console-errors.txt
+.env.production
