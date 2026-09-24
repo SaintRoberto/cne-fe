@@ -251,6 +251,26 @@ function numberValue(value: unknown) {
   return Number.isFinite(numericValue) ? numericValue : undefined;
 }
 
+function compareText(left: unknown, right: unknown) {
+  return textOf(left).localeCompare(textOf(right), 'es', { numeric: true, sensitivity: 'base' });
+}
+
+function compareNumber(left: unknown, right: unknown) {
+  return (numberValue(left) || 0) - (numberValue(right) || 0);
+}
+
+function affectationNumberColumn(title: string, dataIndex: string): ColumnsType<AfectacionesProvinciaItem>[number] {
+  return {
+    title,
+    dataIndex,
+    align: 'right',
+    sorter: (left, right) => compareNumber(left[dataIndex], right[dataIndex]),
+    onCell: (item) => ({
+      className: (numberValue(item[dataIndex]) || 0) > 0 ? 'dashboard-value-cell' : '',
+    }),
+  };
+}
+
 function coordinatesOf(item: EventoItem): [number, number] | null {
   const lat = numberValue(item.latitud);
   const lng = numberValue(item.longitud);
@@ -402,12 +422,15 @@ export function HomeDashboard() {
   const [eventStates, setEventStates] = useState<CatalogItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [period, setPeriod] = useState<[Dayjs, Dayjs] | null>(null);
-  const [province, setProvince] = useState<FilterValue>();
-  const [canton, setCanton] = useState<FilterValue>();
+  const [eventPeriod, setEventPeriod] = useState<[Dayjs, Dayjs] | null>(null);
+  const [eventProvince, setEventProvince] = useState<FilterValue>();
+  const [eventCanton, setEventCanton] = useState<FilterValue>();
   const [parish, setParish] = useState<FilterValue>();
   const [eventType, setEventType] = useState<FilterValue>();
   const [status, setStatus] = useState<FilterValue>();
+  const [affectationPeriod, setAffectationPeriod] = useState<[Dayjs, Dayjs] | null>(null);
+  const [affectationProvince, setAffectationProvince] = useState<FilterValue>();
+  const [affectationCanton, setAffectationCanton] = useState<FilterValue>();
 
   const institucionId = Number(datosLogin?.institucion_id || loginResponse?.usuario?.institucion_id || 0);
 
@@ -437,12 +460,12 @@ export function HomeDashboard() {
     setError(null);
     try {
       const params = new URLSearchParams();
-      if (period) {
-        params.set('fecha_inicio', period[0].format('YYYY-MM-DD'));
-        params.set('fecha_fin', period[1].format('YYYY-MM-DD'));
+      if (affectationPeriod) {
+        params.set('fecha_inicio', affectationPeriod[0].format('YYYY-MM-DD'));
+        params.set('fecha_fin', affectationPeriod[1].format('YYYY-MM-DD'));
       }
-      if (province !== undefined) params.set('provincia_id', String(province));
-      if (canton !== undefined) params.set('canton_id', String(canton));
+      if (affectationProvince !== undefined) params.set('provincia_id', String(affectationProvince));
+      if (affectationCanton !== undefined) params.set('canton_id', String(affectationCanton));
       const query = params.toString();
       const response = await authFetch(`${API_BASE_URL}/eventos/afectaciones/provincias${query ? `?${query}` : ''}`);
       if (!response.ok) throw new Error('No se pudieron cargar las afectaciones por provincia');
@@ -453,7 +476,7 @@ export function HomeDashboard() {
     } finally {
       setLoading(false);
     }
-  }, [authFetch, canton, period, province]);
+  }, [affectationCanton, affectationPeriod, affectationProvince, authFetch]);
 
   useEffect(() => {
     void loadItems();
@@ -511,18 +534,18 @@ export function HomeDashboard() {
 
   const filteredItems = useMemo(() => items.filter((item) => {
     const itemDate = dateOf(item);
-    if (period && (!itemDate || itemDate.isBefore(period[0].startOf('day')) || itemDate.isAfter(period[1].endOf('day')))) return false;
-    if (!matchesCatalogFilter(province, item.provincia_id, provinciaOf(item), provinceOptions)) return false;
-    if (!matchesCatalogFilter(canton, item.canton_id, cantonOf(item), cantonOptions)) return false;
+    if (eventPeriod && (!itemDate || itemDate.isBefore(eventPeriod[0].startOf('day')) || itemDate.isAfter(eventPeriod[1].endOf('day')))) return false;
+    if (!matchesCatalogFilter(eventProvince, item.provincia_id, provinciaOf(item), provinceOptions)) return false;
+    if (!matchesCatalogFilter(eventCanton, item.canton_id, cantonOf(item), cantonOptions)) return false;
     if (!matchesCatalogFilter(parish, item.parroquia_id, parroquiaOf(item), parishOptions)) return false;
     if (!matchesCatalogFilter(eventType, item.evento_tipo_id ?? item.tipo_id, tipoEventoOf(item), eventOptions)) return false;
     if (!matchesCatalogFilter(status, item.evento_atencion_estado_id ?? item.atencion_estado_id ?? item.evento_estado_id ?? item.estado_id, estadoOf(item), statusOptions)) return false;
     return true;
-  }), [canton, cantonOptions, eventOptions, eventType, items, parish, parishOptions, period, province, provinceOptions, status, statusOptions]);
+  }), [cantonOptions, eventCanton, eventOptions, eventPeriod, eventProvince, eventType, items, parish, parishOptions, provinceOptions, status, statusOptions]);
 
   const filteredAfectaciones = useMemo(() => afectaciones.filter((item) => (
-    matchesCatalogFilter(province, item.provincia_id, textOf(item.provincia), provinceOptions)
-  )), [afectaciones, province, provinceOptions]);
+    matchesCatalogFilter(affectationProvince, item.provincia_id, textOf(item.provincia), provinceOptions)
+  )), [afectaciones, affectationProvince, provinceOptions]);
 
   const afectacionesTotals = useMemo(() => ({
     evento: sumBy(filteredAfectaciones, (item) => item.evento),
@@ -599,44 +622,44 @@ export function HomeDashboard() {
     .filter((entry): entry is { item: EventoItem; coordinates: [number, number] } => entry.coordinates !== null), [filteredItems]);
 
   const tableColumns = useMemo<ColumnsType<EventoItem>>(() => [
-    { title: '#', width: 54, render: (_value, _item, index) => index + 1 },
-    { title: 'Provincia', render: (_value, item) => provinciaOf(item) },
-    { title: 'Canton', render: (_value, item) => cantonOf(item) },
-    { title: 'Parroquia', render: (_value, item) => parroquiaOf(item) },
-    { title: 'Recinto', render: (_value, item) => recintoOf(item) },
-    { title: 'Sector', dataIndex: 'sector' },
-    { title: 'Evento', render: (_value, item) => tipoEventoOf(item) },
-    { title: 'Fecha del Evento', render: (_value, item) => dateOf(item)?.format('DD/MM/YYYY') || '' },
-    { title: 'Estado', render: (_value, item) => <StatusTag value={estadoOf(item)} /> },
-    { title: 'Descripcion general del Evento', render: (_value, item) => descripcionOf(item) },
+    { title: '#', width: 54, sorter: (left, right) => compareText(eventId(left), eventId(right)), render: (_value, _item, index) => index + 1 },
+    { title: 'Provincia', sorter: (left, right) => compareText(provinciaOf(left), provinciaOf(right)), render: (_value, item) => provinciaOf(item) },
+    { title: 'Canton', sorter: (left, right) => compareText(cantonOf(left), cantonOf(right)), render: (_value, item) => cantonOf(item) },
+    { title: 'Parroquia', sorter: (left, right) => compareText(parroquiaOf(left), parroquiaOf(right)), render: (_value, item) => parroquiaOf(item) },
+    { title: 'Recinto', sorter: (left, right) => compareText(recintoOf(left), recintoOf(right)), render: (_value, item) => recintoOf(item) },
+    { title: 'Sector', dataIndex: 'sector', sorter: (left, right) => compareText(left.sector, right.sector) },
+    { title: 'Evento', sorter: (left, right) => compareText(tipoEventoOf(left), tipoEventoOf(right)), render: (_value, item) => tipoEventoOf(item) },
+    { title: 'Fecha del Evento', sorter: (left, right) => (dateOf(left)?.valueOf() || 0) - (dateOf(right)?.valueOf() || 0), render: (_value, item) => dateOf(item)?.format('DD/MM/YYYY') || '' },
+    { title: 'Estado', sorter: (left, right) => compareText(estadoOf(left), estadoOf(right)), render: (_value, item) => <StatusTag value={estadoOf(item)} /> },
+    { title: 'Descripcion general del Evento', sorter: (left, right) => compareText(descripcionOf(left), descripcionOf(right)), render: (_value, item) => descripcionOf(item) },
   ], []);
 
   const afectacionesColumns = useMemo<ColumnsType<AfectacionesProvinciaItem>>(() => [
-    { title: '#', width: 54, render: (_value, _item, index) => index + 1 },
-    { title: 'Provincia', dataIndex: 'provincia', sorter: (left, right) => textOf(left.provincia).localeCompare(textOf(right.provincia)) },
-    { title: 'Evento', dataIndex: 'evento', align: 'right' },
-    { title: 'Personas Fallecidas', dataIndex: 'personas_fallecidas', align: 'right' },
-    { title: 'Personas Heridas', dataIndex: 'personas_heridas', align: 'right' },
-    { title: 'Personas Afectadas', dataIndex: 'personas_afectadas', align: 'right' },
-    { title: 'Familias Afectadas', dataIndex: 'familias_afectadas', align: 'right' },
-    { title: 'Viviendas Afectadas', dataIndex: 'viviendas_afectadas', align: 'right' },
-    { title: 'Viviendas Destruidas', dataIndex: 'viviendas_destruidas', align: 'right' },
-    { title: 'Recintos Electorales Afectados', dataIndex: 'recintos_electorales_afectados', align: 'right' },
-    { title: 'Recintos Electorales Destruidos', dataIndex: 'recintos_electorales_destruidos', align: 'right' },
-    { title: 'Bien Publico Afectado', dataIndex: 'bien_publico_afectado', align: 'right' },
-    { title: 'Bien Publico Destruido', dataIndex: 'bien_publico_destruido', align: 'right' },
-    { title: 'Bien Privado Afectado', dataIndex: 'bien_privado_afectado', align: 'right' },
-    { title: 'Bien Privado Destruido', dataIndex: 'bien_privado_destruido', align: 'right' },
-    { title: 'Puentes Afectados', dataIndex: 'puentes_afectados', align: 'right' },
-    { title: 'Puentes Destruidos', dataIndex: 'puentes_destruidos', align: 'right' },
-    { title: 'Vias de Primer Orden (m)', dataIndex: 'vias_primer_orden', align: 'right' },
-    { title: 'Vias de Segundo Orden (m)', dataIndex: 'vias_segundo_orden', align: 'right' },
-    { title: 'Vias de Tercer Orden (m)', dataIndex: 'vias_tercer_orden', align: 'right' },
-    { title: 'Metros Lineales de Vias Afectadas', dataIndex: 'metros_lineales_vias_afectadas', align: 'right' },
-    { title: 'Ha Cultivos Afectados', dataIndex: 'hectareas_cultivos_afectados', align: 'right' },
-    { title: 'Ha Cultivos Perdidos', dataIndex: 'hectareas_cultivos_perdidos', align: 'right' },
-    { title: 'Animales Afectados', dataIndex: 'animales_afectados', align: 'right' },
-    { title: 'Animales Muertos', dataIndex: 'animales_muertos', align: 'right' },
+    { title: '#', width: 54, sorter: (left, right) => compareText(left.provincia_id, right.provincia_id), render: (_value, _item, index) => index + 1 },
+    { title: 'Provincia', dataIndex: 'provincia', sorter: (left, right) => compareText(left.provincia, right.provincia) },
+    affectationNumberColumn('Evento', 'evento'),
+    affectationNumberColumn('Personas Fallecidas', 'personas_fallecidas'),
+    affectationNumberColumn('Personas Heridas', 'personas_heridas'),
+    affectationNumberColumn('Personas Afectadas', 'personas_afectadas'),
+    affectationNumberColumn('Familias Afectadas', 'familias_afectadas'),
+    affectationNumberColumn('Viviendas Afectadas', 'viviendas_afectadas'),
+    affectationNumberColumn('Viviendas Destruidas', 'viviendas_destruidas'),
+    affectationNumberColumn('Recintos Electorales Afectados', 'recintos_electorales_afectados'),
+    affectationNumberColumn('Recintos Electorales Destruidos', 'recintos_electorales_destruidos'),
+    affectationNumberColumn('Bien Publico Afectado', 'bien_publico_afectado'),
+    affectationNumberColumn('Bien Publico Destruido', 'bien_publico_destruido'),
+    affectationNumberColumn('Bien Privado Afectado', 'bien_privado_afectado'),
+    affectationNumberColumn('Bien Privado Destruido', 'bien_privado_destruido'),
+    affectationNumberColumn('Puentes Afectados', 'puentes_afectados'),
+    affectationNumberColumn('Puentes Destruidos', 'puentes_destruidos'),
+    affectationNumberColumn('Vias de Primer Orden (m)', 'vias_primer_orden'),
+    affectationNumberColumn('Vias de Segundo Orden (m)', 'vias_segundo_orden'),
+    affectationNumberColumn('Vias de Tercer Orden (m)', 'vias_tercer_orden'),
+    affectationNumberColumn('Metros Lineales de Vias Afectadas', 'metros_lineales_vias_afectadas'),
+    affectationNumberColumn('Ha Cultivos Afectados', 'hectareas_cultivos_afectados'),
+    affectationNumberColumn('Ha Cultivos Perdidos', 'hectareas_cultivos_perdidos'),
+    affectationNumberColumn('Animales Afectados', 'animales_afectados'),
+    affectationNumberColumn('Animales Muertos', 'animales_muertos'),
   ], []);
 
   const eventLegend = provinceStackedForChart
@@ -648,13 +671,38 @@ export function HomeDashboard() {
     + afectacionesTotals.vias_tercer_orden
     || afectacionesTotals.metros_lineales_vias_afectadas;
 
+  const activePeriod = activeView === 'eventos' ? eventPeriod : affectationPeriod;
+  const activeProvince = activeView === 'eventos' ? eventProvince : affectationProvince;
+  const activeCanton = activeView === 'eventos' ? eventCanton : affectationCanton;
+
+  function changePeriod(value: [Dayjs, Dayjs] | null) {
+    if (activeView === 'eventos') setEventPeriod(value);
+    else setAffectationPeriod(value);
+  }
+
+  function changeProvince(value: FilterValue) {
+    if (activeView === 'eventos') setEventProvince(value);
+    else setAffectationProvince(value);
+  }
+
+  function changeCanton(value: FilterValue) {
+    if (activeView === 'eventos') setEventCanton(value);
+    else setAffectationCanton(value);
+  }
+
   function clearFilters() {
-    setPeriod(null);
-    setProvince(undefined);
-    setCanton(undefined);
-    setParish(undefined);
-    setEventType(undefined);
-    setStatus(undefined);
+    if (activeView === 'eventos') {
+      setEventPeriod(null);
+      setEventProvince(undefined);
+      setEventCanton(undefined);
+      setParish(undefined);
+      setEventType(undefined);
+      setStatus(undefined);
+    } else {
+      setAffectationPeriod(null);
+      setAffectationProvince(undefined);
+      setAffectationCanton(undefined);
+    }
   }
 
   return (
@@ -685,8 +733,8 @@ export function HomeDashboard() {
                   allowClear
                   className="dashboard-filter dashboard-filter--period"
                   format="DD/MM/YYYY"
-                  value={period}
-                  onChange={(value) => setPeriod(value?.[0] && value[1] ? [value[0], value[1]] : null)}
+                  value={activePeriod}
+                  onChange={(value) => changePeriod(value?.[0] && value[1] ? [value[0], value[1]] : null)}
                 />
               </label>
               <label>
@@ -696,12 +744,10 @@ export function HomeDashboard() {
                   showSearch
                   className="dashboard-filter dashboard-filter--province"
                   placeholder="Provincia"
-                  value={province}
+                  value={activeProvince}
                   optionFilterProp="label"
                   options={provinceOptions.map((option) => ({ value: option.value, label: option.label }))}
-                  onChange={(value) => {
-                    setProvince(value);
-                  }}
+                  onChange={changeProvince}
                 />
               </label>
               <label>
@@ -711,10 +757,10 @@ export function HomeDashboard() {
                   showSearch
                   className="dashboard-filter dashboard-filter--canton"
                   placeholder="Canton"
-                  value={canton}
+                  value={activeCanton}
                   optionFilterProp="label"
                   options={cantonOptions.map((option) => ({ value: option.value, label: option.label }))}
-                  onChange={setCanton}
+                  onChange={changeCanton}
                 />
               </label>
               {activeView === 'eventos' ? <label>
