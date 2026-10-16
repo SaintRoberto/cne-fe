@@ -5,6 +5,6 @@ export const dashboardItem: MenuItem = { label: 'Dashboard CNE', path: '/', icon
 
 export const menuItems: MenuItem[] = [
   { label: 'Eventos Adversos', path: '/eventos-adversos', icon: ShieldAlert },
-  { label: 'Infraestructuras', path: '/infraestructuras', icon: Building2 },
-  { label: 'Maestro DPA', path: '/maestro-dpa', icon: MapPinned },
+  { label: 'Infraestructuras', path: '/infraestructuras', icon: Building2, administratorOnly: true },
+  { label: 'Maestro DPA', path: '/maestro-dpa', icon: MapPinned, administratorOnly: true },
 ];

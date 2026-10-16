@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Button, Col, Drawer, Input, InputNumber, Row, Select, Space, Spin, Table, Typography, message } from 'antd';
+import { Alert, Button, Col, InputNumber, Row, Select, Space, Spin, Table, Typography, message } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { SaveOutlined } from '@ant-design/icons';
 import { API_BASE_URL } from '../../config/env';
@@ -22,10 +22,6 @@ type AfectacionVariable = {
   descripcion?: string;
   unidad?: string;
   orden?: number;
-  requiere_detalle?: boolean;
-  es_infraestructura?: boolean;
-  tiene_detalle?: boolean;
-  tiene_detalle_infraestructura?: boolean;
 };
 
 type RegistroApi = {
@@ -45,14 +41,6 @@ type MatrixRow = {
   parroquia: string;
   values: Record<number, number>;
   registros: Record<number, RegistroApi>;
-};
-
-type InfraDetalle = {
-  id?: number;
-  nombre?: string;
-  descripcion?: string;
-  cantidad?: number;
-  observacion?: string;
 };
 
 type Props = {
@@ -98,11 +86,6 @@ export function AfectacionesParroquiasMatrixSidePanel({
   const [provinciaSel, setProvinciaSel] = useState<number | undefined>(Number(datosLogin?.provincia_id || undefined));
   const [cantonSel, setCantonSel] = useState<number | undefined>(Number(cantonId || datosLogin?.canton_id || undefined));
   const [parroquiasSel, setParroquiasSel] = useState<number[]>([]);
-  const [drawerOpen, setDrawerOpen] = useState(false);
-  const [selectedRow, setSelectedRow] = useState<MatrixRow | null>(null);
-  const [selectedVar, setSelectedVar] = useState<AfectacionVariable | null>(null);
-  const [infraDetalles, setInfraDetalles] = useState<InfraDetalle[]>([]);
-  const [detalleLoading, setDetalleLoading] = useState(false);
 
   const emergenciaId = Number(selectedEmergenciaId || datosLogin?.emergencia_id || localStorage.getItem('selectedEmergenciaId') || 0);
   const coeId = Number(datosLogin?.coe_id || 0);
@@ -252,47 +235,6 @@ export function AfectacionesParroquiasMatrixSidePanel({
     }
   }
 
-  async function openDetail(row: MatrixRow, variable: AfectacionVariable) {
-    setSelectedRow(row);
-    setSelectedVar(variable);
-    setDrawerOpen(true);
-    setInfraDetalles([]);
-    const usesInfra = variable.es_infraestructura || variable.tiene_detalle || variable.tiene_detalle_infraestructura || variable.requiere_detalle;
-    if (!usesInfra) return;
-    setDetalleLoading(true);
-    try {
-      const response = await authFetch(`${API_BASE_URL}/afectacion_variable_registro_detalles/emergencia/${emergenciaId}/variable/${variable.id}/parroquia/${row.parroquia_id}`);
-      if (response.ok) setInfraDetalles(unwrapArray<InfraDetalle>(await readJson<unknown>(response)));
-    } finally {
-      setDetalleLoading(false);
-    }
-  }
-
-  async function saveInfraDetalles() {
-    if (!selectedRow || !selectedVar) return;
-    setDetalleLoading(true);
-    try {
-      const responses = await Promise.all(infraDetalles.map((detalle) => authFetch(`${API_BASE_URL}/afectacion_variable_registro_detalles${detalle.id ? `/${detalle.id}` : ''}`, {
-        method: detalle.id ? 'PUT' : 'POST',
-        body: JSON.stringify({
-          ...detalle,
-          emergencia_id: emergenciaId,
-          provincia_id: provinciaSel,
-          canton_id: cantonSel,
-          parroquia_id: selectedRow.parroquia_id,
-          afectacion_variable_id: selectedVar.id,
-          cantidad: Number(detalle.cantidad || 0),
-        }),
-      })));
-      if (responses.some((response) => !response.ok)) throw new Error('No se pudo guardar el detalle');
-      message.success('Detalle guardado correctamente');
-    } catch (saveError) {
-      message.error(saveError instanceof Error ? saveError.message : 'No se pudo guardar el detalle');
-    } finally {
-      setDetalleLoading(false);
-    }
-  }
-
   const columns = useMemo<ColumnsType<MatrixRow>>(() => [
     {
       title: 'Parroquia',
@@ -316,15 +258,6 @@ export function AfectacionesParroquiasMatrixSidePanel({
           disabled={readOnly}
           value={row.values[variable.id]}
           onChange={(value) => updateValue(row.parroquia_id, variable.id, value)}
-          onFocus={() => {
-            setSelectedRow(row);
-            setSelectedVar(variable);
-          }}
-          addonAfter={(
-            <button type="button" className="matrix-detail-button" onClick={() => openDetail(row, variable)}>
-              Detalle
-            </button>
-          )}
         />
       ),
     })),
@@ -371,42 +304,6 @@ export function AfectacionesParroquiasMatrixSidePanel({
         <Table bordered size="middle" rowKey="key" scroll={{ x: Math.max(900, 190 + variables.length * 170) }} columns={columns} dataSource={rows} pagination={false} />
       </Spin>
 
-      <Drawer
-        width={520}
-        title={selectedRow && selectedVar ? `${selectedRow.parroquia} / ${getName(selectedVar)}` : 'Detalle'}
-        open={drawerOpen}
-        onClose={() => setDrawerOpen(false)}
-        extra={<Button type="primary" loading={detalleLoading} disabled={readOnly} onClick={saveInfraDetalles}>Guardar</Button>}
-      >
-        {selectedRow && selectedVar ? (
-          <Spin spinning={detalleLoading}>
-            <Typography.Paragraph>
-              Cantidad registrada: <strong>{selectedRow.values[selectedVar.id] || 0}</strong>
-            </Typography.Paragraph>
-            <Space direction="vertical" className="w-100">
-              {infraDetalles.map((detalle, index) => (
-                <div className="infra-detail-row" key={detalle.id || index}>
-                  <Input disabled={readOnly} placeholder="Infraestructura / detalle" value={detalle.nombre || detalle.descripcion} onChange={(event) => {
-                    const next = [...infraDetalles];
-                    next[index] = { ...detalle, nombre: event.target.value, descripcion: event.target.value };
-                    setInfraDetalles(next);
-                  }} />
-                  <InputNumber disabled={readOnly} min={0} value={detalle.cantidad || 0} onChange={(value) => {
-                    const next = [...infraDetalles];
-                    next[index] = { ...detalle, cantidad: Number(value || 0) };
-                    setInfraDetalles(next);
-                  }} />
-                </div>
-              ))}
-              {!readOnly ? (
-                <Button onClick={() => setInfraDetalles((current) => [...current, { nombre: '', cantidad: 0 }])}>
-                  Agregar detalle
-                </Button>
-              ) : null}
-            </Space>
-          </Spin>
-        ) : null}
-      </Drawer>
     </section>
   );
 }

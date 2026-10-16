@@ -12,4 +12,5 @@ export type MenuItem = {
   path: string;
   icon: LucideIcon;
   badge?: string;
+  administratorOnly?: boolean;
 };

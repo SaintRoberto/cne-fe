@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Card, Col, DatePicker, Form, Input, Row, Select, Spin, Switch, Tag, message } from 'antd';
+import { Alert, Button, Card, Col, DatePicker, Form, Input, Row, Select, Spin, Switch, Tag, message } from 'antd';
+import { TableOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
+import { useNavigate } from 'react-router-dom';
 import { API_BASE_URL } from '../../config/env';
 import { useAuth } from '../../context/AuthContext';
 import { BaseCRUD, type CrudColumn } from '../../components/crud/BaseCRUD';
@@ -32,27 +34,11 @@ type InfraestructuraItem = {
   [key: string]: unknown;
 };
 
-type AfectacionRegistroItem = {
-  id?: Id;
-  registro_id?: Id;
-  afectacion_variable_id?: Id;
-  variable_id?: Id;
-  infraestructura_tipo_id?: Id;
-  nombre?: string;
-  descripcion?: string;
-  afectacion_variable_nombre?: string;
-  variable_nombre?: string;
-  unidad?: string;
-  requiere_gis?: boolean;
-  [key: string]: unknown;
-};
-
 type EventoItem = {
   id?: Id;
   evento_id?: Id;
   activo?: boolean;
   alto_impacto?: boolean;
-  afectacion_variable_id?: number | null;
   infraestructura_id?: Id | null;
   fecha_evento?: string;
   evento_fecha?: string;
@@ -90,8 +76,6 @@ type EventoItem = {
   evento_atencion_estado_nombre?: string;
   infraestructura_nombre?: string;
   infraestructura?: string;
-  afectacion_variable_nombre?: string;
-  variable_nombre?: string;
   evento_causa_nombre?: string;
   evento_origen_nombre?: string;
   evento_tipo_nombre?: string;
@@ -108,7 +92,6 @@ const RECINTO_INFRAESTRUCTURA_TIPO_ID = 3;
 const emptyEvento: EventoItem = {
   activo: true,
   alto_impacto: false,
-  afectacion_variable_id: null,
   fecha_evento: dayjs().format('YYYY-MM-DDTHH:mm:ssZ'),
   sector: '',
   situacion: '',
@@ -122,7 +105,6 @@ const emptyEvento: EventoItem = {
   tipo_id: null,
   subtipo_id: null,
   causa_id: null,
-  origen_id: null,
   atencion_estado_id: 1,
 };
 
@@ -144,14 +126,6 @@ function infraestructuraId(item: InfraestructuraItem) {
 
 function infraestructuraName(item: InfraestructuraItem) {
   return item.nombre || item.recinto || item.descripcion || item.institucion || `Infraestructura ${infraestructuraId(item) || ''}`;
-}
-
-function afectacionVariableId(item: AfectacionRegistroItem) {
-  return toNumericId(item.id || item.afectacion_variable_id || item.variable_id || item.registro_id);
-}
-
-function afectacionVariableName(item: AfectacionRegistroItem) {
-  return item.afectacion_variable_nombre || item.variable_nombre || item.nombre || item.descripcion || `Variable ${afectacionVariableId(item) || ''}`;
 }
 
 function toNumericId(value: unknown) {
@@ -223,15 +197,6 @@ function lockedProvinceOptions(entries: CatalogItem[], selectedValue: number, se
   }];
 }
 
-function uniqueAfectacionVariables(entries: AfectacionRegistroItem[]) {
-  const byId = new Map<number, AfectacionRegistroItem>();
-  entries.forEach((entry) => {
-    const variableId = afectacionVariableId(entry);
-    if (variableId && !byId.has(variableId)) byId.set(variableId, entry);
-  });
-  return Array.from(byId.values());
-}
-
 function buildSelectOptions<T>(entries: T[], valueOf: (item: T) => Id | number | undefined, labelOf: (item: T) => string, selectedValue?: Id | null, selectedLabel?: string) {
   const options = entries
     .map((entry) => {
@@ -272,6 +237,17 @@ function normalizeText(value: string) {
   return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase();
 }
 
+const EVENT_DATE_BY_EMERGENCY_ID: Record<number, string> = {
+  1: '2026-11-26', // PROCESO ELECTORAL 2026 PPL
+  2: '2026-11-27', // PROCESO ELECTORAL 2026 VC
+  3: '2026-11-29', // PROCESO ELECTORAL 2026 G
+};
+
+function eventDateForEmergencyId(emergencyId: number | null) {
+  const date = emergencyId ? EVENT_DATE_BY_EMERGENCY_ID[emergencyId] : undefined;
+  return date ? dayjs(date) : null;
+}
+
 function atencionEstadoName(item: EventoItem, atencionEstados: CatalogItem[]) {
   const catalogEntry = atencionEstados.find((entry) => String(entry.id) === String(item.evento_atencion_estado_id ?? item.atencion_estado_id));
   return String(
@@ -300,12 +276,12 @@ async function readJson<T>(response: Response): Promise<T> {
 }
 
 export function EventosAdversos() {
+  const navigate = useNavigate();
   const { authFetch, datosLogin, loginResponse, selectedEmergenciaId } = useAuth();
   const [items, setItems] = useState<EventoItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [causas, setCausas] = useState<CatalogItem[]>([]);
-  const [origenes, setOrigenes] = useState<CatalogItem[]>([]);
   const [tipos, setTipos] = useState<CatalogItem[]>([]);
   const [subtipos, setSubtipos] = useState<CatalogItem[]>([]);
   const [atencionEstados, setAtencionEstados] = useState<CatalogItem[]>([]);
@@ -313,9 +289,7 @@ export function EventosAdversos() {
   const [cantones, setCantones] = useState<CatalogItem[]>([]);
   const [parroquias, setParroquias] = useState<CatalogItem[]>([]);
   const [infraestructuras, setInfraestructuras] = useState<InfraestructuraItem[]>([]);
-  const [afectacionVariables, setAfectacionVariables] = useState<AfectacionRegistroItem[]>([]);
   const [infraestructurasLoading, setInfraestructurasLoading] = useState(false);
-  const [variablesLoading, setVariablesLoading] = useState(false);
   const [adminFilters, setAdminFilters] = useState({
     provincia_id: undefined as number | undefined,
     canton_id: undefined as number | undefined,
@@ -330,9 +304,11 @@ export function EventosAdversos() {
   const institucionId = Number(datosLogin?.institucion_id || loginResponse?.usuario?.institucion_id || 0);
   const provinciaId = Number(datosLogin?.provincia_id || 0);
   const isAdmin = provinciaId === 0;
+  const administratorAliases = ['admin', 'administrador'];
+  const showProvinceColumn = [datosLogin?.perfil_nombre, datosLogin?.usuario_login, datosLogin?.usuario, datosLogin?.nombres]
+    .some((value) => administratorAliases.some((alias) => String(value || '').trim().localeCompare(alias, 'es', { sensitivity: 'base' }) === 0));
   const cantonId = Number(datosLogin?.canton_id || 0);
-  const coeId = Number(datosLogin?.coe_id || 0);
-  const mesaGrupoId = Number(datosLogin?.mesa_grupo_id || datosLogin?.mesa_id || 0);
+  const allowedEventDate = useMemo(() => eventDateForEmergencyId(selectedEmergenciaId), [selectedEmergenciaId]);
 
   const loadCatalog = useCallback(async <T,>(endpoint: string) => {
     const response = await authFetch(`${API_BASE_URL}${endpoint}`);
@@ -344,7 +320,9 @@ export function EventosAdversos() {
     setLoading(true);
     setError(null);
     try {
-      const endpoint = `${API_BASE_URL}/eventos/provincia/${provinciaId}`;
+      const endpoint = isAdmin
+        ? `${API_BASE_URL}/eventos`
+        : `${API_BASE_URL}/eventos/provincia/${provinciaId}`;
       const response = await authFetch(endpoint);
       if (!response.ok) throw new Error('No se pudieron cargar los eventos adversos');
       const data = unwrapArray<EventoItem>(await readJson<unknown>(response));
@@ -355,22 +333,20 @@ export function EventosAdversos() {
     } finally {
       setLoading(false);
     }
-  }, [authFetch, provinciaId]);
+  }, [authFetch, isAdmin, provinciaId]);
 
   useEffect(() => {
     let cancelled = false;
     async function loadInitialData() {
       try {
-        const [causasData, origenesData, tiposData, atencionData, provinciasData] = await Promise.all([
+        const [causasData, tiposData, atencionData, provinciasData] = await Promise.all([
           loadCatalog<CatalogItem>('/evento-causas'),
-          loadCatalog<CatalogItem>('/evento-origenes'),
           loadCatalog<CatalogItem>(`/evento-tipos/institucion/${institucionId}`),
           loadCatalog<CatalogItem>('/evento-atencion-estados'),
           loadCatalog<CatalogItem>('/provincias'),
         ]);
         if (cancelled) return;
         setCausas(causasData);
-        setOrigenes(origenesData);
         setTipos(tiposData);
         setAtencionEstados(atencionData);
         setProvincias(provinciasData);
@@ -458,24 +434,6 @@ export function EventosAdversos() {
     }
   }, [emergenciaId, loadCatalog]);
 
-  const loadAfectacionVariables = useCallback(async () => {
-    if (!coeId || !mesaGrupoId) {
-      setAfectacionVariables([]);
-      return [];
-    }
-    setVariablesLoading(true);
-    try {
-      const data = uniqueAfectacionVariables(await loadCatalog<AfectacionRegistroItem>(`/mesa_grupo/${mesaGrupoId}/afectacion_varibles/coe/${coeId}`));
-      setAfectacionVariables(data);
-      return data;
-    } catch {
-      setAfectacionVariables([]);
-      return [];
-    } finally {
-      setVariablesLoading(false);
-    }
-  }, [coeId, loadCatalog, mesaGrupoId]);
-
   useEffect(() => {
     void loadCantones(provinciaId);
   }, [loadCantones, provinciaId]);
@@ -483,10 +441,6 @@ export function EventosAdversos() {
   useEffect(() => {
     void loadParroquias(cantonId);
   }, [cantonId, loadParroquias]);
-
-  useEffect(() => {
-    void loadAfectacionVariables();
-  }, [loadAfectacionVariables]);
 
   const resolveItemForEdit = useCallback(async (item: EventoItem) => {
     const itemId = item.id || item.evento_id;
@@ -503,9 +457,7 @@ export function EventosAdversos() {
       tipo_id: data.evento_tipo_id ?? data.tipo_id,
       subtipo_id: data.evento_subtipo_id ?? data.subtipo_id,
       causa_id: data.evento_causa_id ?? data.causa_id,
-      origen_id: data.evento_origen_id ?? data.origen_id,
       atencion_estado_id: data.evento_atencion_estado_id ?? data.atencion_estado_id,
-      afectacion_variable_id: toNumericId(data.afectacion_variable_id) ?? toNumericId(item.afectacion_variable_id) ?? null,
       infraestructura_id: data.infraestructura_id ?? item.infraestructura_id ?? null,
       activo: data.activo ?? item.activo ?? true,
       alto_impacto: data.alto_impacto ?? item.alto_impacto ?? false,
@@ -519,10 +471,7 @@ export function EventosAdversos() {
       loadCantones(nextProvinciaId),
     ]);
     const nextCantonId = resolveCatalogValue(data.canton_id ?? item.canton_id, nextCantones, cantonName);
-    const [nextParroquias] = await Promise.all([
-      loadParroquias(nextCantonId),
-      loadAfectacionVariables(),
-    ]);
+    const nextParroquias = await loadParroquias(nextCantonId);
     const nextParroquiaId = resolveCatalogValue(data.parroquia_id ?? item.parroquia_id, nextParroquias, parroquiaName);
     await loadInfraestructuras(nextParroquiaId);
     return {
@@ -531,12 +480,11 @@ export function EventosAdversos() {
       canton_id: nextCantonId ?? normalizedItem.canton_id,
       parroquia_id: nextParroquiaId ?? normalizedItem.parroquia_id,
     };
-  }, [authFetch, loadAfectacionVariables, loadCantones, loadInfraestructuras, loadParroquias, loadSubtipos, provincias]);
+  }, [authFetch, loadCantones, loadInfraestructuras, loadParroquias, loadSubtipos, provincias]);
 
   const saveItem = useCallback(async (item: EventoItem) => {
     const payload = {
       activo: item.activo ?? true,
-      afectacion_variable_id: toNumericId(item.afectacion_variable_id),
       alto_impacto: item.alto_impacto ?? false,
       canton_id: toNumericId(item.canton_id) || cantonId,
       descripcion: item.descripcion || item.observacion || '',
@@ -545,7 +493,7 @@ export function EventosAdversos() {
       evento_causa_id: toNumericId(item.causa_id),
       evento_fecha: dateValueOf(item) ? dayjs(String(dateValueOf(item))).format('YYYY-MM-DDTHH:mm:ssZ') : undefined,
       evento_id_redm: Number(item.evento_id_redm || 0),
-      evento_origen_id: toNumericId(item.origen_id),
+      evento_origen_id: null,
       evento_subtipo_id: toNumericId(item.subtipo_id),
       evento_tipo_id: toNumericId(item.tipo_id),
       infraestructura_id: toNumericId(item.infraestructura_id),
@@ -563,11 +511,9 @@ export function EventosAdversos() {
       [payload.provincia_id, 'provincia'],
       [payload.canton_id, 'canton'],
       [payload.parroquia_id, 'parroquia'],
-      [payload.infraestructura_id, 'infraestructura'],
-      [payload.afectacion_variable_id, 'variable de afectacion'],
+      [payload.infraestructura_id, 'recinto'],
       [payload.evento_tipo_id, 'tipo'],
       [payload.evento_causa_id, 'causa'],
-      [payload.evento_origen_id, 'origen'],
       [payload.latitud, 'latitud'],
       [payload.longitud, 'longitud'],
       [payload.sector, 'sector'],
@@ -575,6 +521,9 @@ export function EventosAdversos() {
     ];
     const missing = required.find(([value]) => value === undefined || value === null || value === '' || Number.isNaN(value));
     if (missing) throw new Error(`Debe completar ${missing[1]}.`);
+    if (allowedEventDate && !dayjs(String(payload.evento_fecha)).isSame(allowedEventDate, 'day')) {
+      throw new Error(`La fecha del evento debe ser ${allowedEventDate.format('DD/MM/YYYY')}.`);
+    }
 
     const response = await authFetch(`${API_BASE_URL}/eventos${item.id ? `/${item.id}` : ''}`, {
       method: item.id ? 'PUT' : 'POST',
@@ -582,7 +531,7 @@ export function EventosAdversos() {
     });
     if (!response.ok) throw new Error('No se pudo guardar el evento adverso');
     await loadItems();
-  }, [authFetch, cantonId, emergenciaId, loadItems, provinciaId]);
+  }, [allowedEventDate, authFetch, cantonId, emergenciaId, loadItems, provinciaId]);
 
   const deleteItem = useCallback(async (id: Id) => {
     const response = await authFetch(`${API_BASE_URL}/eventos/${id}`, { method: 'DELETE' });
@@ -592,17 +541,17 @@ export function EventosAdversos() {
 
   const columns = useMemo<CrudColumn<EventoItem>[]>(() => [
     { key: 'id', header: 'ID' },
-    { key: 'provincia_nombre', header: 'Provincia', render: (item) => String(item.provincia_nombre || item.provincia || '') },
-    { key: 'canton_nombre', header: 'Canton', render: (item) => String(item.canton_nombre || item.canton || '') },
-    { key: 'parroquia_nombre', header: 'Parroquia', render: (item) => String(item.parroquia_nombre || item.parroquia || '') },
-    { key: 'infraestructura_nombre', header: 'Recinto', render: (item) => String(item.infraestructura_nombre || item.infraestructura || item.infraestructura_id || '') },
-    { key: 'evento_tipo_nombre', header: 'Tipo Evento', render: (item) => String(item.evento_tipo_nombre || item.tipo || '') },
-    { key: 'evento_subtipo_nombre', header: 'Subtipo', render: (item) => String(item.evento_subtipo_nombre || item.subtipo || '') },
-    { key: 'afectacion_variable_nombre', header: 'Variable Afectacion', render: (item) => String(item.afectacion_variable_nombre || item.variable_nombre || item.afectacion_variable_id || '') },
+    ...(showProvinceColumn ? [{ key: 'provincia_nombre', header: 'Provincia', render: (item: EventoItem) => String(item.provincia_nombre || item.provincia || ''), sortValue: (item: EventoItem) => item.provincia_nombre || item.provincia || '' }] : []),
+    { key: 'canton_nombre', header: 'Canton', render: (item) => String(item.canton_nombre || item.canton || ''), sortValue: (item) => item.canton_nombre || item.canton || '' },
+    { key: 'parroquia_nombre', header: 'Parroquia', render: (item) => String(item.parroquia_nombre || item.parroquia || ''), sortValue: (item) => item.parroquia_nombre || item.parroquia || '' },
+    { key: 'infraestructura_nombre', header: 'Recinto', render: (item) => String(item.infraestructura_nombre || item.infraestructura || item.infraestructura_id || ''), sortValue: (item) => item.infraestructura_nombre || item.infraestructura || item.infraestructura_id || '' },
+    { key: 'evento_fecha', header: 'Fecha', render: (item) => dateValueOf(item) ? dayjs(String(dateValueOf(item))).format('DD/MM/YYYY HH:mm') : '', sortValue: (item) => dateValueOf(item) ? dayjs(String(dateValueOf(item))).valueOf() : null },
     { key: 'sector', header: 'Sector' },
+    { key: 'evento_tipo_nombre', header: 'Tipo Evento', render: (item) => String(item.evento_tipo_nombre || item.tipo || ''), sortValue: (item) => item.evento_tipo_nombre || item.tipo || '' },
     {
       key: 'atencion_estado',
       header: 'Estado de Atencion',
+      sortValue: (item) => atencionEstadoName(item, atencionEstados),
       render: (item) => {
         const estado = atencionEstadoName(item, atencionEstados);
         const estadoStyle = atencionEstadoColor(estado);
@@ -622,8 +571,24 @@ export function EventosAdversos() {
         ) : '';
       },
     },
-    { key: 'evento_fecha', header: 'Fecha', render: (item) => dateValueOf(item) ? dayjs(String(dateValueOf(item))).format('DD/MM/YYYY HH:mm') : '' },
-  ], [atencionEstados]);
+    {
+      key: 'matriz_afectaciones',
+      header: 'Matriz Afectaciones',
+      sortValue: (item) => item.id ? 1 : 0,
+      render: (item) => item.id ? (
+        <Button
+          size="small"
+          type="primary"
+          ghost
+          icon={<TableOutlined />}
+          aria-label={`Abrir matriz de afectaciones del evento ${item.id}`}
+          onClick={() => navigate(`/eventos-adversos/${item.id}/afectaciones`)}
+        >
+          Matriz
+        </Button>
+      ) : null,
+    },
+  ], [atencionEstados, navigate, showProvinceColumn]);
 
   const adminBaseFilteredItems = useMemo(() => {
     if (!isAdmin) return items;
@@ -705,24 +670,26 @@ export function EventosAdversos() {
       ? selectOptions(provincias, effectiveProvinciaValue, effectiveProvinciaName)
       : effectiveProvinciaValue ? lockedProvinceOptions(provincias, effectiveProvinciaValue, effectiveProvinciaName) : [];
     const selectedInfraestructuraName = String(item.infraestructura_nombre || item.infraestructura || '').trim();
-    const selectedAfectacionName = String(item.afectacion_variable_nombre || item.variable_nombre || '').trim();
     return (
       <Form layout="vertical" className="event-form">
         <Row gutter={16}>
           <Col xs={24} md={8}>
             <Form.Item label="Fecha del evento" required>
               <DatePicker
-                showTime
+                showTime={{ format: 'HH:mm' }}
+                format="YYYY-MM-DD HH:mm"
                 className="w-100"
                 disabled={readonly}
+                disabledDate={(current) => Boolean(allowedEventDate && !current.isSame(allowedEventDate, 'day'))}
+                defaultPickerValue={allowedEventDate || undefined}
                 value={dateValueOf(item) ? dayjs(String(dateValueOf(item))) : null}
-                onChange={(date) => update({ fecha_evento: date?.format('YYYY-MM-DDTHH:mm:ssZ') })}
+                onChange={(date) => update({ fecha_evento: date?.second(0).format('YYYY-MM-DDTHH:mm:ssZ') })}
               />
             </Form.Item>
           </Col>
           <Col xs={24} md={8}>
             <Form.Item label="Estado de atencion">
-              <Select allowClear disabled={readonly} value={item.atencion_estado_id ?? undefined} options={atencionEstados.map((entry) => ({ value: entry.id, label: nameOf(entry) }))} onChange={(value) => update({ atencion_estado_id: toNumericId(value) ?? null })} />
+              <Select allowClear showSearch optionFilterProp="label" disabled={readonly} value={item.atencion_estado_id ?? undefined} options={atencionEstados.map((entry) => ({ value: entry.id, label: nameOf(entry) }))} onChange={(value) => update({ atencion_estado_id: toNumericId(value) ?? null })} />
             </Form.Item>
           </Col>
           <Col xs={24} md={8}>
@@ -733,9 +700,11 @@ export function EventosAdversos() {
         </Row>
 
         <Row gutter={16}>
-          <Col xs={24} md={6}>
+          <Col xs={24} md={8}>
             <Form.Item label="Tipo de evento" required>
               <Select
+                showSearch
+                optionFilterProp="label"
                 disabled={readonly}
                 value={item.tipo_id ?? undefined}
                 options={tipos.map((entry) => ({ value: entry.id, label: nameOf(entry) }))}
@@ -747,10 +716,12 @@ export function EventosAdversos() {
               />
             </Form.Item>
           </Col>
-          <Col xs={24} md={6}>
+          <Col xs={24} md={8}>
             <Form.Item label="Subtipo">
               <Select
                 allowClear
+                showSearch
+                optionFilterProp="label"
                 disabled={readonly}
                 value={item.subtipo_id ?? undefined}
                 options={subtipos.map((entry) => ({ value: entry.id, label: nameOf(entry) }))}
@@ -759,36 +730,17 @@ export function EventosAdversos() {
               />
             </Form.Item>
           </Col>
-          <Col xs={24} md={6}>
+          <Col xs={24} md={8}>
             <Form.Item label="Causa" required>
-              <Select disabled={readonly} value={item.causa_id ?? undefined} options={causas.map((entry) => ({ value: entry.id, label: nameOf(entry) }))} onChange={(value) => update({ causa_id: toNumericId(value) ?? null })} />
-            </Form.Item>
-          </Col>
-          <Col xs={24} md={6}>
-            <Form.Item label="Afectacion" required>
-              <Select
-                showSearch
-                disabled={readonly}
-                loading={variablesLoading}
-                value={item.afectacion_variable_id ?? undefined}
-                options={buildSelectOptions(afectacionVariables, afectacionVariableId, afectacionVariableName, item.afectacion_variable_id, selectedAfectacionName)}
-                optionFilterProp="label"
-                placeholder="Seleccione"
-                onChange={(value) => update({ afectacion_variable_id: toNumericId(value) ?? null })}
-              />
+              <Select showSearch optionFilterProp="label" disabled={readonly} value={item.causa_id ?? undefined} options={causas.map((entry) => ({ value: entry.id, label: nameOf(entry) }))} onChange={(value) => update({ causa_id: toNumericId(value) ?? null })} />
             </Form.Item>
           </Col>
         </Row>
 
         <Row gutter={16}>
           <Col xs={24} md={8}>
-            <Form.Item label="Origen" required>
-              <Select disabled={readonly} value={item.origen_id ?? undefined} options={origenes.map((entry) => ({ value: entry.id, label: nameOf(entry) }))} onChange={(value) => update({ origen_id: toNumericId(value) ?? null })} />
-            </Form.Item>
-          </Col>
-          <Col xs={24} md={8}>
             <Form.Item label="Provincia" required>
-              <Select disabled={readonly || !isAdmin} value={effectiveProvinciaValue} options={provinciaOptions} onChange={(value) => {
+              <Select showSearch optionFilterProp="label" disabled={readonly || !isAdmin} value={effectiveProvinciaValue} options={provinciaOptions} onChange={(value) => {
                 update({ provincia_id: value, canton_id: null, parroquia_id: null, infraestructura_id: null, latitud: null, longitud: null });
                 void loadCantones(value);
                 setParroquias([]);
@@ -798,26 +750,26 @@ export function EventosAdversos() {
           </Col>
           <Col xs={24} md={8}>
             <Form.Item label="Canton" required>
-              <Select disabled={readonly} value={cantonValue} options={selectOptions(cantones, cantonValue, cantonName)} onChange={(value) => {
+              <Select showSearch optionFilterProp="label" disabled={readonly} value={cantonValue} options={selectOptions(cantones, cantonValue, cantonName)} onChange={(value) => {
                 update({ canton_id: value, parroquia_id: null, infraestructura_id: null, latitud: null, longitud: null });
                 void loadParroquias(value);
                 setInfraestructuras([]);
               }} />
             </Form.Item>
           </Col>
-        </Row>
-
-        <Row gutter={16}>
           <Col xs={24} md={8}>
             <Form.Item label="Parroquia" required>
-              <Select disabled={readonly} value={parroquiaValue} options={selectOptions(parroquias, parroquiaValue, parroquiaName)} onChange={(value) => {
+              <Select showSearch optionFilterProp="label" disabled={readonly} value={parroquiaValue} options={selectOptions(parroquias, parroquiaValue, parroquiaName)} onChange={(value) => {
                 update({ parroquia_id: value, infraestructura_id: null, latitud: null, longitud: null });
                 void loadInfraestructuras(value);
               }} />
             </Form.Item>
           </Col>
-          <Col xs={24} md={8}>
-            <Form.Item label="Infraestructura" required>
+        </Row>
+
+        <Row gutter={16}>
+          <Col xs={24} md={12}>
+            <Form.Item label="Recinto electoral" required>
               <Select
                 showSearch
                 disabled={readonly || !parroquiaValue}
@@ -837,14 +789,14 @@ export function EventosAdversos() {
               />
             </Form.Item>
           </Col>
-          <Col xs={24} md={8}>
+          <Col xs={24} md={12}>
             <Form.Item label="Sector" required>
               <Input disabled={readonly} value={item.sector} onChange={(event) => update({ sector: event.target.value })} />
             </Form.Item>
           </Col>
         </Row>
 
-        <Form.Item label="Descripcion">
+        <Form.Item label="Antecedentes">
           <Input disabled={readonly} value={item.descripcion} onChange={(event) => update({ descripcion: event.target.value })} />
         </Form.Item>
 
@@ -857,7 +809,7 @@ export function EventosAdversos() {
           />
         </Form.Item>
 
-        <Form.Item label="Situacion" required>
+        <Form.Item label="Situación Actual" required>
           <Input.TextArea rows={2} disabled={readonly} value={item.situacion} onChange={(event) => update({ situacion: event.target.value })} />
         </Form.Item>
       </Form>
@@ -969,11 +921,12 @@ export function EventosAdversos() {
         <BaseCRUD
           title="Eventos Adversos"
           itemLabel="evento adverso"
-          modalWidth={640}
+          modalWidth={1200}
           items={visibleItems}
           columns={columns}
           initialItem={{
             ...emptyEvento,
+            fecha_evento: undefined,
             provincia_id: provinciaId || null,
             canton_id: cantonId || null,
             emergencia_id: emergenciaId || null,

@@ -40,12 +40,29 @@ export type DatosLogin = {
   [key: string]: unknown;
 };
 
+export type EmergencyItem = {
+  emergencia_id: number;
+  emergencia: string;
+  ambito?: string;
+  descripcion?: string;
+  identificador?: string | null;
+  usuario?: string;
+  dashboard?: string | null;
+  dasbhoard?: string | null;
+  logo?: string | null;
+  [key: string]: unknown;
+};
+
 type AuthContextValue = {
   user: User | null;
   loginResponse: LoginResponse | null;
   datosLogin: DatosLogin | null;
+  emergencias: EmergencyItem[];
+  selectedEmergencia: EmergencyItem | null;
   selectedEmergenciaId: number | null;
+  selectEmergencia: (emergencia: EmergencyItem) => void;
   setSelectedEmergenciaId: (id: number | null) => void;
+  refreshEmergencias: () => Promise<EmergencyItem[]>;
   authFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
   login: (username: string, password: string) => Promise<boolean>;
   logout: () => void;
@@ -60,6 +77,7 @@ const AUTH_KEY = 'cne-auth';
 const TOKEN_KEY = 'token';
 const USER_ID_KEY = 'userId';
 const EMERGENCY_KEY = 'selectedEmergenciaId';
+const SELECTED_EMERGENCY_KEY = 'selectedEmergencia';
 
 const demoDatosLogin: DatosLogin = {
   usuario_id: 1,
@@ -112,17 +130,24 @@ function buildUser(datos: DatosLogin | null): User | null {
 function readStoredAuth() {
   try {
     const stored = localStorage.getItem(AUTH_KEY);
-    if (!stored) return { loginResponse: null, datosLogin: null, user: null, selectedEmergenciaId: null };
+    if (!stored) return { loginResponse: null, datosLogin: null, user: null, emergencias: [], selectedEmergencia: null, selectedEmergenciaId: null };
     const parsed = JSON.parse(stored) as {
       loginResponse: LoginResponse | null;
       datosLogin: DatosLogin | null;
       user: User | null;
+      emergencias?: EmergencyItem[];
+      selectedEmergencia?: EmergencyItem | null;
       selectedEmergenciaId: number | null;
     };
-    const selected = Number(localStorage.getItem(EMERGENCY_KEY) || parsed.selectedEmergenciaId || parsed.datosLogin?.emergencia_id || 0);
-    return { ...parsed, selectedEmergenciaId: selected || null };
+    const selected = Number(localStorage.getItem(EMERGENCY_KEY) || parsed.selectedEmergenciaId || parsed.selectedEmergencia?.emergencia_id || 0);
+    const emergencias = Array.isArray(parsed.emergencias) ? parsed.emergencias : [];
+    const storedEmergency = localStorage.getItem(SELECTED_EMERGENCY_KEY);
+    const selectedEmergencia = (storedEmergency ? JSON.parse(storedEmergency) as EmergencyItem : parsed.selectedEmergencia)
+      || emergencias.find((item) => item.emergencia_id === selected)
+      || null;
+    return { ...parsed, emergencias, selectedEmergencia, selectedEmergenciaId: selected || null };
   } catch {
-    return { loginResponse: null, datosLogin: null, user: null, selectedEmergenciaId: null };
+    return { loginResponse: null, datosLogin: null, user: null, emergencias: [], selectedEmergencia: null, selectedEmergenciaId: null };
   }
 }
 
@@ -131,23 +156,63 @@ async function parseJsonSafe<T>(response: Response): Promise<T> {
   return text ? JSON.parse(text) as T : ({} as T);
 }
 
+function datosLoginRows(payload: unknown): DatosLogin[] {
+  if (Array.isArray(payload)) {
+    return payload.filter((item): item is DatosLogin => Boolean(item) && typeof item === 'object');
+  }
+  if (!payload || typeof payload !== 'object') return [];
+
+  const record = payload as Record<string, unknown>;
+  const collectionKeys = ['emergencias', 'datos_login', 'datosLogin', 'data', 'resultados', 'items'];
+  for (const key of collectionKeys) {
+    const collection = record[key];
+    if (!Array.isArray(collection)) continue;
+    const base = Object.fromEntries(Object.entries(record).filter(([entryKey]) => entryKey !== key));
+    return collection
+      .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object')
+      .map((item) => ({ ...base, ...item } as DatosLogin));
+  }
+
+  return [record as DatosLogin];
+}
+
+function emergencyFromRow(row: DatosLogin): EmergencyItem | null {
+  const id = Number(row.emergencia_id || row.id || 0);
+  if (!id) return null;
+  return {
+    ...row,
+    emergencia_id: id,
+    emergencia: String(row.emergencia || row.descripcion || row.nombre || `Emergencia ${id}`),
+  } as EmergencyItem;
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const stored = readStoredAuth();
   const [loginResponse, setLoginResponse] = useState<LoginResponse | null>(stored.loginResponse);
   const [datosLogin, setDatosLogin] = useState<DatosLogin | null>(stored.datosLogin);
   const [user, setUser] = useState<User | null>(stored.user || buildUser(stored.datosLogin));
+  const [emergencias, setEmergencias] = useState<EmergencyItem[]>(stored.emergencias);
+  const [selectedEmergencia, setSelectedEmergencia] = useState<EmergencyItem | null>(stored.selectedEmergencia);
   const [selectedEmergenciaIdState, setSelectedEmergenciaIdState] = useState<number | null>(stored.selectedEmergenciaId);
 
-  const persist = useCallback((nextLogin: LoginResponse | null, nextDatos: DatosLogin | null, nextUser: User | null, emergencyId: number | null) => {
+  const persist = useCallback((nextLogin: LoginResponse | null, nextDatos: DatosLogin | null, nextUser: User | null, availableEmergencies: EmergencyItem[], emergency: EmergencyItem | null) => {
     if (nextLogin?.token) localStorage.setItem(TOKEN_KEY, String(nextLogin.token));
     const userId = nextLogin?.userId || nextLogin?.usuario_id || nextLogin?.id || nextDatos?.usuario_id;
     if (userId) localStorage.setItem(USER_ID_KEY, String(userId));
-    if (emergencyId) localStorage.setItem(EMERGENCY_KEY, String(emergencyId));
+    if (emergency) {
+      localStorage.setItem(EMERGENCY_KEY, String(emergency.emergencia_id));
+      localStorage.setItem(SELECTED_EMERGENCY_KEY, JSON.stringify(emergency));
+    } else {
+      localStorage.removeItem(EMERGENCY_KEY);
+      localStorage.removeItem(SELECTED_EMERGENCY_KEY);
+    }
     localStorage.setItem(AUTH_KEY, JSON.stringify({
       loginResponse: nextLogin,
       datosLogin: nextDatos,
       user: nextUser,
-      selectedEmergenciaId: emergencyId,
+      emergencias: availableEmergencies,
+      selectedEmergencia: emergency,
+      selectedEmergenciaId: emergency?.emergencia_id || null,
     }));
   }, []);
 
@@ -165,11 +230,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return fetch(input, { ...requestInit, headers });
   }, [loginResponse?.token]);
 
+  const refreshEmergencias = useCallback(async () => {
+    const response = await authFetch(`${API_BASE_URL}/emergencias`);
+    if (!response.ok) throw new Error('No se pudieron cargar las emergencias activas.');
+    const payload = await parseJsonSafe<unknown>(response);
+    const availableEmergencies = datosLoginRows(payload)
+      .map(emergencyFromRow)
+      .filter((item): item is EmergencyItem => item !== null)
+      .filter((item) => ![false, 0, '0', 'false'].includes(item.activo as false | 0 | '0' | 'false'))
+      .filter((item, index, items) => items.findIndex((candidate) => candidate.emergencia_id === item.emergencia_id) === index);
+    setEmergencias(availableEmergencies);
+    persist(loginResponse, datosLogin, user, availableEmergencies, selectedEmergencia);
+    return availableEmergencies;
+  }, [authFetch, datosLogin, loginResponse, persist, selectedEmergencia, user]);
+
+  const selectEmergencia = useCallback((emergency: EmergencyItem) => {
+    const nextDatos = { ...datosLogin, ...emergency, emergencia_id: emergency.emergencia_id } as DatosLogin;
+    setDatosLogin(nextDatos);
+    setSelectedEmergencia(emergency);
+    setSelectedEmergenciaIdState(emergency.emergencia_id);
+    persist(loginResponse, nextDatos, user, emergencias, emergency);
+  }, [datosLogin, emergencias, loginResponse, persist, user]);
+
   const setSelectedEmergenciaId = useCallback((id: number | null) => {
-    setSelectedEmergenciaIdState(id);
-    if (id) localStorage.setItem(EMERGENCY_KEY, String(id));
-    else localStorage.removeItem(EMERGENCY_KEY);
-  }, []);
+    if (!id) {
+      setSelectedEmergencia(null);
+      setSelectedEmergenciaIdState(null);
+      persist(loginResponse, datosLogin, user, emergencias, null);
+      return;
+    }
+    const emergency = emergencias.find((item) => item.emergencia_id === id);
+    if (emergency) selectEmergencia(emergency);
+  }, [datosLogin, emergencias, loginResponse, persist, selectEmergencia, user]);
 
   const login = useCallback(async (username: string, password: string) => {
     try {
@@ -194,17 +286,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             headers: nextLogin.token ? { Authorization: `Bearer ${nextLogin.token}` } : undefined,
           })
         : null;
-      const datosLogin = datosRes?.ok ? await parseJsonSafe<DatosLogin>(datosRes) : {};
-      const nextDatos = { ...loginDatos, ...loginUsuario, ...datosLogin } as DatosLogin;
+      if (!datosRes) throw new Error('No se pudo identificar al usuario autenticado.');
+      if (!datosRes.ok) throw new Error('No se pudieron cargar los datos del usuario.');
+      const datosPayload = datosRes?.ok ? await parseJsonSafe<unknown>(datosRes) : {};
+      const loginRows = datosLoginRows(datosPayload);
+      const emergenciesRes = await fetch(`${API_BASE_URL}/emergencias`, {
+        headers: { Authorization: `Bearer ${nextLogin.token}` },
+      });
+      if (!emergenciesRes.ok) throw new Error('No se pudieron cargar las emergencias activas.');
+      const emergenciesPayload = await parseJsonSafe<unknown>(emergenciesRes);
+      const availableEmergencies = datosLoginRows(emergenciesPayload)
+        .map(emergencyFromRow)
+        .filter((item): item is EmergencyItem => item !== null)
+        .filter((item) => ![false, 0, '0', 'false'].includes(item.activo as false | 0 | '0' | 'false'))
+        .filter((item, index, items) => items.findIndex((candidate) => candidate.emergencia_id === item.emergencia_id) === index);
+      const nextDatos = { ...loginDatos, ...loginUsuario, ...(loginRows[0] || {}) } as DatosLogin;
       const mergedDatos = { ...loginUsuario, ...nextDatos, correo: nextDatos.correo || loginUsuario?.correo || nextDatos.email || loginUsuario?.email || username };
       const nextUser = buildUser(mergedDatos) || demoUser;
-      const emergencyId = Number(mergedDatos.emergencia_id || localStorage.getItem(EMERGENCY_KEY) || 0) || null;
 
       setLoginResponse(nextLogin);
       setDatosLogin(mergedDatos);
       setUser(nextUser);
-      setSelectedEmergenciaIdState(emergencyId);
-      persist(nextLogin, mergedDatos, nextUser, emergencyId);
+      setEmergencias(availableEmergencies);
+      setSelectedEmergencia(null);
+      setSelectedEmergenciaIdState(null);
+      persist(nextLogin, mergedDatos, nextUser, availableEmergencies, null);
       return true;
     } catch {
       return false;
@@ -216,9 +322,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(USER_ID_KEY);
     localStorage.removeItem(EMERGENCY_KEY);
+    localStorage.removeItem(SELECTED_EMERGENCY_KEY);
+    localStorage.removeItem('selectedEmergenciaName');
+    localStorage.removeItem('selectedDashboardUrl');
+    localStorage.removeItem('selectedDashboardEmergenciaId');
     setLoginResponse(null);
     setDatosLogin(null);
     setUser(null);
+    setEmergencias([]);
+    setSelectedEmergencia(null);
     setSelectedEmergenciaIdState(null);
   }, []);
 
@@ -245,8 +357,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     user,
     loginResponse,
     datosLogin,
+    emergencias,
+    selectedEmergencia,
     selectedEmergenciaId: selectedEmergenciaIdState,
+    selectEmergencia,
     setSelectedEmergenciaId,
+    refreshEmergencias,
     authFetch,
     login,
     logout,
@@ -257,8 +373,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     user,
     loginResponse,
     datosLogin,
+    emergencias,
+    selectedEmergencia,
     selectedEmergenciaIdState,
+    selectEmergencia,
     setSelectedEmergenciaId,
+    refreshEmergencias,
     authFetch,
     login,
     logout,

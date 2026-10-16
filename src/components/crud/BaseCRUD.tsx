@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Button, Input, Modal, Space, message } from 'antd';
-import { DeleteOutlined, EditOutlined, EyeOutlined, PlusOutlined, SearchOutlined } from '@ant-design/icons';
+import { CaretDownOutlined, CaretUpOutlined, DeleteOutlined, EditOutlined, EyeOutlined, PlusOutlined, SearchOutlined, SwapOutlined } from '@ant-design/icons';
 import { useLocation } from 'react-router-dom';
 import { API_BASE_URL } from '../../config/env';
 import { useAuth } from '../../context/AuthContext';
@@ -10,6 +10,8 @@ export type CrudColumn<T> = {
   key: keyof T | string;
   header: string;
   render?: (item: T) => ReactNode;
+  sortable?: boolean;
+  sortValue?: (item: T) => unknown;
 };
 
 export type CrudPermissions = {
@@ -50,6 +52,16 @@ function normalizePermissions(payload: unknown): CrudPermissions {
   };
 }
 
+function compareSortValues(left: unknown, right: unknown): number {
+  const leftEmpty = left === null || left === undefined || left === '';
+  const rightEmpty = right === null || right === undefined || right === '';
+  if (leftEmpty && rightEmpty) return 0;
+  if (leftEmpty) return 1;
+  if (rightEmpty) return -1;
+  if (typeof left === 'number' && typeof right === 'number') return left - right;
+  return String(left).localeCompare(String(right), 'es', { numeric: true, sensitivity: 'base' });
+}
+
 export function BaseCRUD<T extends { id?: number | string }>({
   title,
   items,
@@ -68,6 +80,7 @@ export function BaseCRUD<T extends { id?: number | string }>({
   const [permissions, setPermissions] = useState<CrudPermissions>(defaultPermissions);
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
+  const [sort, setSort] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [readonly, setReadonly] = useState(false);
   const [currentItem, setCurrentItem] = useState<T>(initialItem);
@@ -105,13 +118,35 @@ export function BaseCRUD<T extends { id?: number | string }>({
     return items.filter((item) => JSON.stringify(item).toLowerCase().includes(term));
   }, [items, search]);
 
+  const sortedItems = useMemo(() => {
+    if (!sort) return filteredItems;
+    const column = columns.find((candidate) => String(candidate.key) === sort.key);
+    if (!column || column.sortable === false) return filteredItems;
+    const multiplier = sort.direction === 'asc' ? 1 : -1;
+    return filteredItems
+      .map((item, index) => ({ item, index }))
+      .sort((left, right) => {
+        const leftValue = column.sortValue ? column.sortValue(left.item) : (left.item as Record<string, unknown>)[sort.key];
+        const rightValue = column.sortValue ? column.sortValue(right.item) : (right.item as Record<string, unknown>)[sort.key];
+        return compareSortValues(leftValue, rightValue) * multiplier || left.index - right.index;
+      })
+      .map(({ item }) => item);
+  }, [columns, filteredItems, sort]);
+
   const pageSize = 10;
   const totalPages = Math.max(1, Math.ceil(filteredItems.length / pageSize));
-  const visibleItems = filteredItems.slice((page - 1) * pageSize, page * pageSize);
+  const visibleItems = sortedItems.slice((page - 1) * pageSize, page * pageSize);
 
   useEffect(() => {
     if (page > totalPages) setPage(totalPages);
   }, [page, totalPages]);
+
+  function toggleSort(key: string) {
+    setSort((current) => current?.key === key
+      ? { key, direction: current.direction === 'asc' ? 'desc' : 'asc' }
+      : { key, direction: 'asc' });
+    setPage(1);
+  }
 
   async function openItem(item: T, mode: 'read' | 'edit') {
     const resolved = resolveItemForEdit ? await resolveItemForEdit(item) : item;
@@ -183,7 +218,20 @@ export function BaseCRUD<T extends { id?: number | string }>({
         <table className="table table-hover align-middle base-crud__table">
           <thead>
             <tr>
-              {columns.map((column) => <th key={String(column.key)}>{column.header}</th>)}
+              {columns.map((column) => {
+                const columnKey = String(column.key);
+                const activeSort = sort?.key === columnKey ? sort.direction : null;
+                return (
+                  <th key={columnKey} aria-sort={activeSort === 'asc' ? 'ascending' : activeSort === 'desc' ? 'descending' : 'none'}>
+                    {column.sortable === false ? column.header : (
+                      <button type="button" className={`base-crud__sort${activeSort ? ' base-crud__sort--active' : ''}`} onClick={() => toggleSort(columnKey)}>
+                        <span>{column.header}</span>
+                        {activeSort === 'asc' ? <CaretUpOutlined /> : activeSort === 'desc' ? <CaretDownOutlined /> : <SwapOutlined rotate={90} />}
+                      </button>
+                    )}
+                  </th>
+                );
+              })}
               <th className="text-end">Acciones</th>
             </tr>
           </thead>

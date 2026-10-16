@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Button, Checkbox, Drawer, Empty, InputNumber, Spin, Table, Typography, message } from 'antd';
+import { Alert, Button, Drawer, InputNumber, Spin, Table, Typography, message } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { SaveOutlined } from '@ant-design/icons';
 import { API_BASE_URL } from '../../config/env';
@@ -14,6 +14,9 @@ export type EventoAfectacionesEvento = {
   provincia_nombre?: string;
   canton_nombre?: string;
   parroquia_nombre?: string;
+  infraestructura_id?: number | null;
+  infraestructura_nombre?: string;
+  infraestructura?: string;
   descripcion?: string;
   sector?: string;
   evento_tipo_nombre?: string;
@@ -51,43 +54,11 @@ type RegistroApi = {
   evento_sector?: string;
 };
 
-type InfraestructuraRecinto = {
-  id: number | string;
-  nombre?: string;
-  direccion?: string;
-  institucion?: string | null;
-  latitud?: number;
-  longitud?: number;
-  tipologia?: string;
-};
-
-type InfraestructuraDetalleGuardado = {
-  id?: number | string;
-  activo?: boolean;
-  afectacion_variable_registro_id?: number | string;
-  afectacionVariableRegistroId?: number | string;
-  infraestructura_id?: number | string;
-  infraestructuraId?: number | string;
-  costo?: number;
-  emergencia_id?: number;
-  parroquia_id?: number;
-  evento_id?: number;
-  afectacion_variable_registro?: {
-    id?: number | string;
-    afectacion_variable_id?: number | string;
-    afectacionVariableId?: number | string;
-    variable_id?: number | string;
-  };
-  infraestructura?: {
-    id?: number | string;
-  };
-};
-
 type MatrixRow = {
   key: number;
   parroquia_id: number;
-  parroquia: string;
   evento: string;
+  recinto: string;
   sector?: string;
 };
 
@@ -98,23 +69,14 @@ type CellDraft = {
 
 type Props = {
   evento: EventoAfectacionesEvento;
+  onDirtyChange?: (hasUnsavedChanges: boolean) => void;
 };
-
-const RECINTO_INFRAESTRUCTURA_TIPO_ID = 3;
 
 function unwrapArray<T>(payload: unknown): T[] {
   if (Array.isArray(payload)) return payload as T[];
   const record = payload as Record<string, unknown>;
   const candidate = record?.data || record?.items || record?.rows || record?.result || record?.registros || record?.detalles || record?.detalle;
   return Array.isArray(candidate) ? candidate as T[] : [];
-}
-
-function unwrapOneOrMany<T>(payload: unknown): T[] {
-  if (Array.isArray(payload)) return payload as T[];
-  const record = payload as Record<string, unknown>;
-  const nested = record?.data || record?.items || record?.rows || record?.result;
-  if (Array.isArray(nested)) return nested as T[];
-  return record && Object.keys(record).length ? [record as T] : [];
 }
 
 function unwrapObject<T>(payload: unknown): T {
@@ -147,48 +109,9 @@ function registroId(registro?: RegistroApi): string {
   return normalId(registro?.id || registro?.registro_id || registro?.registroId);
 }
 
-function detalleRegistroId(detalle: InfraestructuraDetalleGuardado): string {
-  return normalId(detalle.afectacion_variable_registro_id || detalle.afectacionVariableRegistroId || detalle.afectacion_variable_registro?.id);
-}
-
-function detalleInfraestructuraId(detalle: InfraestructuraDetalleGuardado): string {
-  return normalId(detalle.infraestructura_id || detalle.infraestructuraId || detalle.infraestructura?.id);
-}
-
-function detalleVariableId(detalle: InfraestructuraDetalleGuardado): number {
-  return Number(
-    detalle.afectacion_variable_registro?.afectacion_variable_id
-    || detalle.afectacion_variable_registro?.afectacionVariableId
-    || detalle.afectacion_variable_registro?.variable_id
-    || 0,
-  );
-}
-
-function detalleBelongsToSelection(detalle: InfraestructuraDetalleGuardado, registroIdActual: string, variableIdActual?: number): boolean {
-  const registroDetalleId = detalleRegistroId(detalle);
-  if (registroIdActual && registroDetalleId === registroIdActual) return true;
-  return Boolean(variableIdActual && detalleVariableId(detalle) === variableIdActual);
-}
-
-function infraestructuraId(infraestructura: InfraestructuraRecinto): string {
-  return normalId(infraestructura.id);
-}
-
 async function readJson<T>(response: Response): Promise<T> {
   const text = await response.text();
   return text ? JSON.parse(text) as T : ({} as T);
-}
-
-function usesInfrastructureDetail(variable: AfectacionVariable): boolean {
-  const label = variableName(variable).toLowerCase();
-  return Boolean(
-    variable.es_infraestructura
-    || variable.tiene_detalle
-    || variable.tiene_detalle_infraestructura
-    || variable.requiere_detalle
-    || label.includes('recinto')
-    || label.includes('infraestructura'),
-  );
 }
 
 function eventName(evento: EventoAfectacionesEvento, registro?: RegistroApi): string {
@@ -205,7 +128,7 @@ function cantidadTone(cantidad: number) {
   return 'primary';
 }
 
-export function EventoAfectacionesMatrix({ evento }: Props) {
+export function EventoAfectacionesMatrix({ evento, onDirtyChange }: Props) {
   const { authFetch, datosLogin, selectedEmergenciaId } = useAuth();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -215,10 +138,6 @@ export function EventoAfectacionesMatrix({ evento }: Props) {
   const [selectedVariable, setSelectedVariable] = useState<AfectacionVariable | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [draft, setDraft] = useState<CellDraft>({ cantidad: 0, costo: 0 });
-  const [infraestructuras, setInfraestructuras] = useState<InfraestructuraRecinto[]>([]);
-  const [selectedInfraestructuraIds, setSelectedInfraestructuraIds] = useState<string[]>([]);
-  const [infraDetallesGuardados, setInfraDetallesGuardados] = useState<InfraestructuraDetalleGuardado[]>([]);
-  const [detalleLoading, setDetalleLoading] = useState(false);
   const [dirtyVariableIds, setDirtyVariableIds] = useState<Set<number>>(new Set());
 
   const emergenciaId = firstPositiveNumber(evento.emergencia_id, datosLogin?.emergencia_id, selectedEmergenciaId, localStorage.getItem('selectedEmergenciaId'));
@@ -228,6 +147,15 @@ export function EventoAfectacionesMatrix({ evento }: Props) {
   const coeId = Number(datosLogin?.coe_id || 0);
   const mesaGrupoId = Number(datosLogin?.mesa_grupo_id || datosLogin?.mesa_id || 0);
   const readOnly = Number(datosLogin?.coe_id) === 1;
+  const hasUnsavedChanges = dirtyVariableIds.size > 0;
+
+  useEffect(() => {
+    onDirtyChange?.(hasUnsavedChanges);
+  }, [hasUnsavedChanges, onDirtyChange]);
+
+  useEffect(() => () => {
+    onDirtyChange?.(false);
+  }, [onDirtyChange]);
 
   const registrosByVariable = useMemo(() => {
     const map = new Map<number, RegistroApi>();
@@ -243,8 +171,8 @@ export function EventoAfectacionesMatrix({ evento }: Props) {
     return {
       key: evento.id,
       parroquia_id: Number(evento.parroquia_id || firstRegistro?.parroquia_id || parroquiaId || 0),
-      parroquia: firstRegistro?.parroquia_nombre || evento.parroquia_nombre || 'Parroquia',
       evento: eventName(evento, firstRegistro),
+      recinto: evento.infraestructura_nombre || evento.infraestructura || (evento.infraestructura_id ? `Recinto #${evento.infraestructura_id}` : 'Recinto no especificado'),
       sector: firstRegistro?.evento_sector || evento.sector,
     };
   }, [evento, parroquiaId, registros]);
@@ -311,109 +239,12 @@ export function EventoAfectacionesMatrix({ evento }: Props) {
     });
   }, [evento.id, matrixRow.parroquia_id, parroquiaId, selectedVariable]);
 
-  const openCell = useCallback(async (variable: AfectacionVariable) => {
+  const openCell = useCallback((variable: AfectacionVariable) => {
     const registro = registrosByVariable.get(variable.id);
-    const effectiveParroquiaId = matrixRow.parroquia_id || parroquiaId;
     setSelectedVariable(variable);
     setDraft({ cantidad: Number(registro?.cantidad || 0), costo: Number(registro?.costo ?? registro?.valor ?? 0) });
-    setInfraestructuras([]);
-    setSelectedInfraestructuraIds([]);
-    setInfraDetallesGuardados([]);
     setDrawerOpen(true);
-
-    if (!usesInfrastructureDetail(variable)) return;
-    if (!emergenciaId || !effectiveParroquiaId) {
-      message.warning('No se pudo determinar la emergencia o parroquia para cargar recintos electorales.');
-      return;
-    }
-    setDetalleLoading(true);
-    try {
-      const [infraestructurasResponse, detallesResponse] = await Promise.all([
-        authFetch(`${API_BASE_URL}/infraestructuras/parroquia/${effectiveParroquiaId}/infraestructura_tipo/${RECINTO_INFRAESTRUCTURA_TIPO_ID}/emergencia/${emergenciaId}`),
-        authFetch(`${API_BASE_URL}/afectacion-variable-registro-detalles`),
-      ]);
-      if (!infraestructurasResponse.ok) throw new Error('No se pudieron cargar los recintos electorales.');
-      if (!detallesResponse.ok) throw new Error('No se pudieron cargar los recintos ya registrados.');
-
-      const recintos = unwrapOneOrMany<InfraestructuraRecinto>(await readJson<unknown>(infraestructurasResponse));
-      const detalles = unwrapArray<InfraestructuraDetalleGuardado>(await readJson<unknown>(detallesResponse));
-      const detallesActivos = detalles.filter((detalle) => detalle.activo !== false);
-      const currentRegistroId = registroId(registro);
-      const infraestructurasGuardadasActuales = new Set(detallesActivos
-        .filter((detalle) => detalleBelongsToSelection(detalle, currentRegistroId, variable.id))
-        .map(detalleInfraestructuraId)
-        .filter(Boolean));
-      const infraestructurasUsadasEnOtrosRegistros = new Set(detallesActivos
-        .filter((detalle) => !detalleBelongsToSelection(detalle, currentRegistroId, variable.id))
-        .map(detalleInfraestructuraId)
-        .filter(Boolean));
-
-      setInfraDetallesGuardados(detallesActivos);
-      setSelectedInfraestructuraIds(Array.from(infraestructurasGuardadasActuales));
-      setInfraestructuras(recintos.filter((recinto) => infraestructuraId(recinto) && !infraestructurasUsadasEnOtrosRegistros.has(infraestructuraId(recinto))));
-    } catch (loadError) {
-      message.warning(loadError instanceof Error ? loadError.message : 'No se pudieron cargar los recintos electorales.');
-    } finally {
-      setDetalleLoading(false);
-    }
-  }, [authFetch, emergenciaId, evento.id, matrixRow.parroquia_id, parroquiaId, registrosByVariable]);
-
-  const toggleInfraestructura = useCallback((infraestructuraId: string, checked: boolean) => {
-    setSelectedInfraestructuraIds((current) => {
-      const selected = new Set(current);
-      if (checked) selected.add(infraestructuraId);
-      else selected.delete(infraestructuraId);
-      return Array.from(selected);
-    });
-  }, []);
-
-  const saveInfraestructuras = useCallback(async () => {
-    if (!selectedVariable || !selectedInfraestructuraIds.length) return;
-    const parentId = registroId(registrosByVariable.get(selectedVariable.id));
-    if (!parentId) {
-      message.warning('Primero guarda la matriz para esta variable antes de asociar recintos afectados.');
-      return;
-    }
-
-    const alreadySavedIds = new Set(infraDetallesGuardados
-      .filter((detalle) => detalle.activo !== false && detalleBelongsToSelection(detalle, parentId, selectedVariable.id))
-      .map(detalleInfraestructuraId)
-      .filter(Boolean));
-    const idsToSave = selectedInfraestructuraIds.filter((infraestructuraId) => !alreadySavedIds.has(infraestructuraId));
-    if (!idsToSave.length) {
-      message.info('No hay recintos nuevos por guardar.');
-      return;
-    }
-
-    setDetalleLoading(true);
-    try {
-      const detailResponses = await Promise.all(idsToSave.map((infraestructuraId) => authFetch(`${API_BASE_URL}/afectacion-variable-registro-detalles`, {
-        method: 'POST',
-        body: JSON.stringify({
-          activo: true,
-          afectacion_variable_registro_id: Number(parentId),
-          costo: Number(draft.costo || 0),
-          infraestructura_id: Number(infraestructuraId),
-        }),
-      })));
-      if (detailResponses.some((response) => !response.ok)) throw new Error('No se pudieron guardar todos los recintos afectados.');
-
-      const savedDetails = await Promise.all(detailResponses.map((response) => readJson<unknown>(response).then((payload) => unwrapObject<InfraestructuraDetalleGuardado>(payload))));
-      setInfraDetallesGuardados((current) => [...current, ...savedDetails.map((detalle, index) => ({
-        ...detalle,
-        activo: detalle.activo ?? true,
-        afectacion_variable_registro_id: detalle.afectacion_variable_registro_id || parentId,
-        infraestructura_id: detalle.infraestructura_id || idsToSave[index],
-        costo: detalle.costo ?? Number(draft.costo || 0),
-      }))]);
-      setSelectedInfraestructuraIds((current) => Array.from(new Set([...current, ...idsToSave])));
-      message.success('Recintos afectados guardados correctamente.');
-    } catch (saveError) {
-      message.error(saveError instanceof Error ? saveError.message : 'No se pudieron guardar los recintos afectados.');
-    } finally {
-      setDetalleLoading(false);
-    }
-  }, [authFetch, draft.costo, infraDetallesGuardados, registrosByVariable, selectedInfraestructuraIds, selectedVariable]);
+  }, [registrosByVariable]);
 
   const saveMatrix = useCallback(async () => {
     const pendingRegistros = registros.filter((registro) => dirtyVariableIds.has(registroVariableId(registro)));
@@ -497,14 +328,14 @@ export function EventoAfectacionesMatrix({ evento }: Props) {
 
   const columns = useMemo<ColumnsType<MatrixRow>>(() => [
     {
-      title: 'Parroquia / Evento',
+      title: 'Evento / Recinto',
       key: 'evento',
       fixed: 'left',
       width: 230,
       render: (_: unknown, row: MatrixRow) => (
         <div className="evento-afectaciones-row-title">
-          <strong>{row.parroquia}</strong>
-          <span>{row.evento}</span>
+          <strong>{row.evento}</strong>
+          <span>{row.recinto}</span>
           {row.sector ? <small>{row.sector}</small> : null}
         </div>
       ),
@@ -519,21 +350,13 @@ export function EventoAfectacionesMatrix({ evento }: Props) {
     render: () => <div className="evento-afectaciones-placeholder">La matriz aparecera aqui cuando el backend entregue las categorias de afectacion.</div>,
   }], [columns, variableColumns.length]);
 
-  const currentRegistroId = selectedVariable ? registroId(registrosByVariable.get(selectedVariable.id)) : '';
-  const savedInfraestructuraIdsForCurrentVariable = useMemo(() => new Set(infraDetallesGuardados
-    .filter((detalle) => detalle.activo !== false && selectedVariable && detalleBelongsToSelection(detalle, currentRegistroId, selectedVariable.id))
-    .map(detalleInfraestructuraId)
-    .filter(Boolean)), [currentRegistroId, infraDetallesGuardados, selectedVariable]);
-  const pendingInfraestructuraIds = useMemo(() => selectedInfraestructuraIds
-    .filter((infraestructuraId) => !savedInfraestructuraIdsForCurrentVariable.has(infraestructuraId)), [savedInfraestructuraIdsForCurrentVariable, selectedInfraestructuraIds]);
-
   return (
     <section className="evento-afectaciones-matrix">
       <div className="evento-afectaciones-matrix__toolbar">
-        <Typography.Text type="secondary">Selecciona una categoria para registrar o editar su cantidad y costo.</Typography.Text>
         <Button type="primary" icon={<SaveOutlined />} loading={saving} disabled={readOnly || loading || !dirtyVariableIds.size} onClick={() => void saveMatrix()}>
           Guardar matriz
         </Button>
+        <Typography.Text type="secondary">Registre la cantidad de infraestructura afectada y si posee el dato de estimación del costo por daños ingreselos:</Typography.Text>
       </div>
 
       {error ? <Alert className="mb-3" type="warning" showIcon message={error} /> : null}
@@ -542,51 +365,24 @@ export function EventoAfectacionesMatrix({ evento }: Props) {
         <Table<MatrixRow> bordered size="middle" rowKey="key" scroll={{ x: Math.max(760, 230 + variables.length * 230) }} columns={displayedColumns} dataSource={[matrixRow]} pagination={false} />
       </Spin>
 
-      <Drawer width={520} destroyOnHidden title={selectedVariable ? `Parroquia/Evento: ${matrixRow.parroquia} - ${matrixRow.evento}` : 'Afectacion'} open={drawerOpen} onClose={() => setDrawerOpen(false)}>
+      <Drawer width={520} destroyOnHidden title={selectedVariable ? `Evento/Recinto: ${matrixRow.evento} - ${matrixRow.recinto}` : 'Afectacion'} open={drawerOpen} onClose={() => setDrawerOpen(false)}>
         {selectedVariable ? (
-          <Spin spinning={detalleLoading}>
-            <div className="evento-afectaciones-drawer-body">
-              <div className="evento-afectaciones-editor-card">
-                <Typography.Text className="evento-afectaciones-editor-card__title" strong>{variableName(selectedVariable)}</Typography.Text>
-                <div className="evento-afectaciones-editor-card__fields">
-                  <label className="evento-afectaciones-field">
-                    <span>Cantidad</span>
-                    <InputNumber className="w-100" min={0} disabled={readOnly} value={draft.cantidad} onChange={(value) => updateDraftValue({ ...draft, cantidad: Number(value || 0) })} />
-                  </label>
-                  <label className="evento-afectaciones-field">
-                    <span>Costo Estimado</span>
-                    <InputNumber className="w-100" min={0} precision={2} prefix="$" disabled={readOnly} value={draft.costo} onChange={(value) => updateDraftValue({ ...draft, costo: Number(value || 0) })} />
-                  </label>
-                </div>
+          <div className="evento-afectaciones-drawer-body">
+            <div className="evento-afectaciones-editor-card">
+              <Typography.Text className="evento-afectaciones-editor-card__title" strong>{variableName(selectedVariable)}</Typography.Text>
+              <div className="evento-afectaciones-editor-card__fields">
+                <label className="evento-afectaciones-field">
+                  <span>Cantidad</span>
+                  <InputNumber className="w-100" min={0} disabled={readOnly} value={draft.cantidad} onChange={(value) => updateDraftValue({ ...draft, cantidad: Number(value || 0) })} />
+                </label>
+                <label className="evento-afectaciones-field">
+                  <span>Costo Estimado</span>
+                  <InputNumber className="w-100" min={0} precision={2} prefix="$" disabled={readOnly} value={draft.costo} onChange={(value) => updateDraftValue({ ...draft, costo: Number(value || 0) })} />
+                </label>
               </div>
-              <Button onClick={() => setDrawerOpen(false)}>Cerrar</Button>
-
-              {usesInfrastructureDetail(selectedVariable) ? (
-                <div className="evento-afectaciones-details">
-                  <div className="evento-afectaciones-details__header">
-                    <Typography.Title level={5}>Recintos afectados</Typography.Title>
-                    {!readOnly ? (
-                      <Button type="primary" icon={<SaveOutlined />} disabled={!pendingInfraestructuraIds.length} onClick={saveInfraestructuras}>
-                        Guardar recintos afectados
-                      </Button>
-                    ) : null}
-                  </div>
-                  <div className="infra-checklist">
-                    {infraestructuras.length ? infraestructuras.map((infraestructura) => (
-                      <label className="infra-checklist__item" key={infraestructura.id}>
-                        <Checkbox
-                          disabled={readOnly || savedInfraestructuraIdsForCurrentVariable.has(infraestructuraId(infraestructura))}
-                          checked={selectedInfraestructuraIds.includes(infraestructuraId(infraestructura))}
-                          onChange={(event) => toggleInfraestructura(infraestructuraId(infraestructura), event.target.checked)}
-                        />
-                        <span>{infraestructura.nombre || `Recinto ${infraestructura.id}`}</span>
-                      </label>
-                    )) : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No hay recintos disponibles para esta parroquia." />}
-                  </div>
-                </div>
-              ) : null}
             </div>
-          </Spin>
+            <Button onClick={() => setDrawerOpen(false)}>Cerrar</Button>
+          </div>
         ) : null}
       </Drawer>
     </section>

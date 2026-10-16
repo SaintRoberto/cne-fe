@@ -5,23 +5,17 @@ import dayjs, { type Dayjs } from 'dayjs';
 import L from 'leaflet';
 import {
   Activity,
-  Ban,
   Bridge,
   Building2,
-  HeartPulse,
   Home,
+  Hospital,
   Landmark,
-  OctagonX,
   PawPrint,
   Route,
   Sprout,
-  TriangleAlert,
-  UserX,
+  UserRound,
   Users,
-  UsersRound,
   Vote,
-  Warehouse,
-  Wheat,
 } from 'lucide-react';
 import { CircleMarker, MapContainer, Popup, TileLayer, useMap } from 'react-leaflet';
 import { API_BASE_URL } from '../../config/env';
@@ -125,7 +119,28 @@ type AfectacionesProvinciaItem = {
   hectareas_cultivos_perdidos?: number;
   animales_afectados?: number;
   animales_muertos?: number;
+  variables?: Record<string, number>;
   [key: string]: unknown;
+};
+
+type AfectacionRegistroItem = {
+  activo?: boolean;
+  afectacion_variable_id?: Id;
+  cantidad?: number | string | null;
+  canton_id?: Id | null;
+  creacion?: string;
+  emergencia_id?: Id | null;
+  evento_id?: Id | null;
+  provincia_id?: Id | null;
+};
+
+type AfectacionVariableItem = {
+  id?: Id;
+  afectacion_variable_id?: Id;
+  activo?: boolean;
+  nombre?: string;
+  descripcion?: string;
+  orden?: number;
 };
 
 const { RangePicker } = DatePicker;
@@ -163,6 +178,14 @@ function normalizeText(value: string) {
 
 function textOf(value: unknown) {
   return String(value || '').trim();
+}
+
+function affectationVariableId(variable: AfectacionVariableItem) {
+  return String(variable.id || variable.afectacion_variable_id || '');
+}
+
+function affectationVariableName(variable: AfectacionVariableItem) {
+  return textOf(variable.nombre || variable.descripcion || `Variable ${affectationVariableId(variable)}`);
 }
 
 function catalogId(item: CatalogItem) {
@@ -331,6 +354,35 @@ function SectionTitle({ children }: { children: string }) {
   );
 }
 
+type AffectationTone = 'default' | 'danger' | 'warning' | 'success' | 'purple';
+
+function affectationVisual(variableName: string): { icon: typeof Users; tone: AffectationTone } {
+  const name = normalizeText(variableName);
+  const tone: AffectationTone = name.includes('destruid') || name.includes('muert') || name.includes('fallecid')
+    ? 'danger'
+    : name.includes('perdid') || name.includes('herid') || name.includes('quemad')
+      ? 'warning'
+      : name.includes('cultivo') || name.includes('vegetal') || name.includes('animal') || name.includes('via') || name.includes('metro')
+        ? 'success'
+        : name.includes('recinto') || name.includes('bien')
+          ? 'purple'
+          : 'default';
+
+  if (name.includes('recinto')) return { icon: Vote, tone };
+  if (name.includes('centro') && name.includes('salud')) return { icon: Hospital, tone };
+  if (name.includes('puente')) return { icon: Bridge, tone };
+  if (name.includes('animal')) return { icon: PawPrint, tone };
+  if (name.includes('bien') && name.includes('public')) return { icon: Landmark, tone };
+  if (name.includes('bien') && name.includes('privad')) return { icon: Building2, tone };
+  if (name.includes('cultivo') || name.includes('vegetal') || name.includes('hectarea')) return { icon: Sprout, tone };
+  if (name.includes('vivienda')) return { icon: Home, tone };
+  if (name.includes('via') || name.includes('metro')) return { icon: Route, tone };
+  if (name.includes('familia')) return { icon: Users, tone };
+  if (name.includes('persona')) return { icon: UserRound, tone };
+  if (name.includes('infraestructura') || name.includes('edific')) return { icon: Building2, tone };
+  return { icon: Activity, tone };
+}
+
 function AffectationMetric({
   icon: Icon,
   label,
@@ -340,7 +392,7 @@ function AffectationMetric({
   icon: typeof Users;
   label: string;
   value: number;
-  tone?: 'default' | 'danger' | 'warning' | 'success' | 'purple';
+  tone?: AffectationTone;
 }) {
   return (
     <span className={`affectations-metric affectations-metric--${tone}`}>
@@ -411,10 +463,11 @@ function StackedBars({ data }: { data: StackedDatum[] }) {
 }
 
 export function HomeDashboard() {
-  const { authFetch, datosLogin, loginResponse } = useAuth();
+  const { authFetch, datosLogin, loginResponse, selectedEmergenciaId } = useAuth();
   const [activeView, setActiveView] = useState<DashboardView>('eventos');
   const [items, setItems] = useState<EventoItem[]>([]);
   const [afectaciones, setAfectaciones] = useState<AfectacionesProvinciaItem[]>([]);
+  const [afectacionVariables, setAfectacionVariables] = useState<AfectacionVariableItem[]>([]);
   const [provinces, setProvinces] = useState<CatalogItem[]>([]);
   const [cantons, setCantons] = useState<CatalogItem[]>([]);
   const [parishes, setParishes] = useState<CatalogItem[]>([]);
@@ -433,6 +486,9 @@ export function HomeDashboard() {
   const [affectationCanton, setAffectationCanton] = useState<FilterValue>();
 
   const institucionId = Number(datosLogin?.institucion_id || loginResponse?.usuario?.institucion_id || 0);
+  const emergenciaId = Number(selectedEmergenciaId || datosLogin?.emergencia_id || localStorage.getItem('selectedEmergenciaId') || 0);
+  const coeId = Number(datosLogin?.coe_id || 0);
+  const mesaGrupoId = Number(datosLogin?.mesa_grupo_id || datosLogin?.mesa_id || 0);
 
   const loadCatalog = useCallback(async <T,>(endpoint: string) => {
     const response = await authFetch(`${API_BASE_URL}${endpoint}`);
@@ -464,19 +520,71 @@ export function HomeDashboard() {
         params.set('fecha_inicio', affectationPeriod[0].format('YYYY-MM-DD'));
         params.set('fecha_fin', affectationPeriod[1].format('YYYY-MM-DD'));
       }
+      if (emergenciaId) params.set('emergencia_id', String(emergenciaId));
       if (affectationProvince !== undefined) params.set('provincia_id', String(affectationProvince));
       if (affectationCanton !== undefined) params.set('canton_id', String(affectationCanton));
       const query = params.toString();
-      const response = await authFetch(`${API_BASE_URL}/eventos/afectaciones/provincias${query ? `?${query}` : ''}`);
-      if (!response.ok) throw new Error('No se pudieron cargar las afectaciones por provincia');
-      setAfectaciones(unwrapArray<AfectacionesProvinciaItem>(await readJson<unknown>(response)));
+      const [summaryResponse, recordsResponse, variablesResponse] = await Promise.all([
+        authFetch(`${API_BASE_URL}/eventos/afectaciones/provincias${query ? `?${query}` : ''}`),
+        authFetch(`${API_BASE_URL}/afectacion-variable-registros`),
+        authFetch(`${API_BASE_URL}/mesa_grupo/${mesaGrupoId}/afectacion_varibles/coe/${coeId}`),
+      ]);
+      if (!summaryResponse.ok) throw new Error('No se pudo cargar el resumen de eventos por provincia');
+      if (!recordsResponse.ok) throw new Error('No se pudieron cargar los registros de afectaciones');
+      if (!variablesResponse.ok) throw new Error('No se pudo cargar el catálogo de variables de afectación');
+
+      const summaries = unwrapArray<AfectacionesProvinciaItem>(await readJson<unknown>(summaryResponse));
+      const records = unwrapArray<AfectacionRegistroItem>(await readJson<unknown>(recordsResponse));
+      const variables = unwrapArray<AfectacionVariableItem>(await readJson<unknown>(variablesResponse))
+        .filter((variable) => Boolean(variable.id || variable.afectacion_variable_id))
+        .sort((left, right) => Number(left.orden || left.id || 0) - Number(right.orden || right.id || 0));
+      setAfectacionVariables(variables);
+      const variableIds = new Set(variables.map((variable) => String(variable.id || variable.afectacion_variable_id)));
+      const eventsById = new Map(items.map((item) => [String(eventId(item)), item]));
+      const summariesByProvince = new Map<string, AfectacionesProvinciaItem>();
+
+      summaries.forEach((summary) => {
+        const cleanSummary = { ...summary, variables: Object.fromEntries(Array.from(variableIds, (variableId) => [variableId, 0])) };
+        summariesByProvince.set(String(summary.provincia_id ?? ''), cleanSummary);
+      });
+
+      records.forEach((record) => {
+        if (record.activo === false) return;
+        if (emergenciaId && String(record.emergencia_id ?? '') !== String(emergenciaId)) return;
+        if (affectationProvince !== undefined && String(record.provincia_id ?? '') !== String(affectationProvince)) return;
+        if (affectationCanton !== undefined && String(record.canton_id ?? '') !== String(affectationCanton)) return;
+
+        if (affectationPeriod) {
+          const relatedEvent = eventsById.get(String(record.evento_id ?? ''));
+          const recordDate = relatedEvent ? dateOf(relatedEvent) : record.creacion ? dayjs(record.creacion) : null;
+          if (!recordDate?.isValid() || recordDate.isBefore(affectationPeriod[0].startOf('day')) || recordDate.isAfter(affectationPeriod[1].endOf('day'))) return;
+        }
+
+        const variableId = String(record.afectacion_variable_id ?? '');
+        if (!variableIds.has(variableId)) return;
+        const provinceKey = String(record.provincia_id ?? '');
+        let summary = summariesByProvince.get(provinceKey);
+        if (!summary) {
+          summary = {
+            provincia_id: record.provincia_id ?? undefined,
+            provincia: `Provincia ${provinceKey}`,
+            evento: 0,
+            variables: Object.fromEntries(Array.from(variableIds, (id) => [id, 0])),
+          };
+          summariesByProvince.set(provinceKey, summary);
+        }
+        summary.variables![variableId] = Number(summary.variables![variableId] || 0) + Number(record.cantidad || 0);
+      });
+
+      setAfectaciones(Array.from(summariesByProvince.values()));
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : 'No se pudieron cargar las afectaciones por provincia');
       setAfectaciones([]);
+      setAfectacionVariables([]);
     } finally {
       setLoading(false);
     }
-  }, [affectationCanton, affectationPeriod, affectationProvince, authFetch]);
+  }, [affectationCanton, affectationPeriod, affectationProvince, authFetch, coeId, emergenciaId, items, mesaGrupoId]);
 
   useEffect(() => {
     void loadItems();
@@ -547,31 +655,11 @@ export function HomeDashboard() {
     matchesCatalogFilter(affectationProvince, item.provincia_id, textOf(item.provincia), provinceOptions)
   )), [afectaciones, affectationProvince, provinceOptions]);
 
-  const afectacionesTotals = useMemo(() => ({
-    evento: sumBy(filteredAfectaciones, (item) => item.evento),
-    personas_fallecidas: sumBy(filteredAfectaciones, (item) => item.personas_fallecidas),
-    personas_heridas: sumBy(filteredAfectaciones, (item) => item.personas_heridas),
-    personas_afectadas: sumBy(filteredAfectaciones, (item) => item.personas_afectadas),
-    familias_afectadas: sumBy(filteredAfectaciones, (item) => item.familias_afectadas),
-    viviendas_afectadas: sumBy(filteredAfectaciones, (item) => item.viviendas_afectadas),
-    viviendas_destruidas: sumBy(filteredAfectaciones, (item) => item.viviendas_destruidas),
-    recintos_electorales_afectados: sumBy(filteredAfectaciones, (item) => item.recintos_electorales_afectados),
-    recintos_electorales_destruidos: sumBy(filteredAfectaciones, (item) => item.recintos_electorales_destruidos),
-    bien_publico_afectado: sumBy(filteredAfectaciones, (item) => item.bien_publico_afectado),
-    bien_publico_destruido: sumBy(filteredAfectaciones, (item) => item.bien_publico_destruido),
-    bien_privado_afectado: sumBy(filteredAfectaciones, (item) => item.bien_privado_afectado),
-    bien_privado_destruido: sumBy(filteredAfectaciones, (item) => item.bien_privado_destruido),
-    puentes_afectados: sumBy(filteredAfectaciones, (item) => item.puentes_afectados),
-    puentes_destruidos: sumBy(filteredAfectaciones, (item) => item.puentes_destruidos),
-    vias_primer_orden: sumBy(filteredAfectaciones, (item) => item.vias_primer_orden),
-    vias_segundo_orden: sumBy(filteredAfectaciones, (item) => item.vias_segundo_orden),
-    vias_tercer_orden: sumBy(filteredAfectaciones, (item) => item.vias_tercer_orden),
-    metros_lineales_vias_afectadas: sumBy(filteredAfectaciones, (item) => item.metros_lineales_vias_afectadas),
-    hectareas_cultivos_afectados: sumBy(filteredAfectaciones, (item) => item.hectareas_cultivos_afectados),
-    hectareas_cultivos_perdidos: sumBy(filteredAfectaciones, (item) => item.hectareas_cultivos_perdidos),
-    animales_afectados: sumBy(filteredAfectaciones, (item) => item.animales_afectados),
-    animales_muertos: sumBy(filteredAfectaciones, (item) => item.animales_muertos),
-  }), [filteredAfectaciones]);
+  const totalAffectationEvents = useMemo(() => sumBy(filteredAfectaciones, (item) => item.evento), [filteredAfectaciones]);
+  const affectationVariableTotals = useMemo(() => new Map(afectacionVariables.map((variable) => {
+    const variableId = affectationVariableId(variable);
+    return [variableId, sumBy(filteredAfectaciones, (item) => item.variables?.[variableId])] as const;
+  })), [afectacionVariables, filteredAfectaciones]);
 
   const statusCounts = useMemo(() => countBy(filteredItems, estadoOf), [filteredItems]);
   const statusSummary = useMemo(() => {
@@ -638,38 +726,25 @@ export function HomeDashboard() {
     { title: '#', width: 54, sorter: (left, right) => compareText(left.provincia_id, right.provincia_id), render: (_value, _item, index) => index + 1 },
     { title: 'Provincia', dataIndex: 'provincia', sorter: (left, right) => compareText(left.provincia, right.provincia) },
     affectationNumberColumn('Evento', 'evento'),
-    affectationNumberColumn('Personas Fallecidas', 'personas_fallecidas'),
-    affectationNumberColumn('Personas Heridas', 'personas_heridas'),
-    affectationNumberColumn('Personas Afectadas', 'personas_afectadas'),
-    affectationNumberColumn('Familias Afectadas', 'familias_afectadas'),
-    affectationNumberColumn('Viviendas Afectadas', 'viviendas_afectadas'),
-    affectationNumberColumn('Viviendas Destruidas', 'viviendas_destruidas'),
-    affectationNumberColumn('Recintos Electorales Afectados', 'recintos_electorales_afectados'),
-    affectationNumberColumn('Recintos Electorales Destruidos', 'recintos_electorales_destruidos'),
-    affectationNumberColumn('Bien Publico Afectado', 'bien_publico_afectado'),
-    affectationNumberColumn('Bien Publico Destruido', 'bien_publico_destruido'),
-    affectationNumberColumn('Bien Privado Afectado', 'bien_privado_afectado'),
-    affectationNumberColumn('Bien Privado Destruido', 'bien_privado_destruido'),
-    affectationNumberColumn('Puentes Afectados', 'puentes_afectados'),
-    affectationNumberColumn('Puentes Destruidos', 'puentes_destruidos'),
-    affectationNumberColumn('Vias de Primer Orden (m)', 'vias_primer_orden'),
-    affectationNumberColumn('Vias de Segundo Orden (m)', 'vias_segundo_orden'),
-    affectationNumberColumn('Vias de Tercer Orden (m)', 'vias_tercer_orden'),
-    affectationNumberColumn('Metros Lineales de Vias Afectadas', 'metros_lineales_vias_afectadas'),
-    affectationNumberColumn('Ha Cultivos Afectados', 'hectareas_cultivos_afectados'),
-    affectationNumberColumn('Ha Cultivos Perdidos', 'hectareas_cultivos_perdidos'),
-    affectationNumberColumn('Animales Afectados', 'animales_afectados'),
-    affectationNumberColumn('Animales Muertos', 'animales_muertos'),
-  ], []);
+    ...afectacionVariables.map((variable) => {
+      const variableId = affectationVariableId(variable);
+      return {
+        title: affectationVariableName(variable),
+        key: `variable-${variableId}`,
+        width: 160,
+        align: 'right' as const,
+        render: (_value: unknown, item: AfectacionesProvinciaItem) => Number(item.variables?.[variableId] || 0),
+        sorter: (left: AfectacionesProvinciaItem, right: AfectacionesProvinciaItem) => Number(left.variables?.[variableId] || 0) - Number(right.variables?.[variableId] || 0),
+        onCell: (item: AfectacionesProvinciaItem) => ({
+          className: Number(item.variables?.[variableId] || 0) > 0 ? 'dashboard-value-cell' : '',
+        }),
+      };
+    }),
+  ], [afectacionVariables]);
 
   const eventLegend = provinceStackedForChart
     .flatMap((item) => item.segments)
     .filter((segment, index, segments) => segment.value > 0 && segments.findIndex((candidate) => candidate.label === segment.label) === index);
-
-  const totalViasAfectadas = afectacionesTotals.vias_primer_orden
-    + afectacionesTotals.vias_segundo_orden
-    + afectacionesTotals.vias_tercer_orden
-    || afectacionesTotals.metros_lineales_vias_afectadas;
 
   const activePeriod = activeView === 'eventos' ? eventPeriod : affectationPeriod;
   const activeProvince = activeView === 'eventos' ? eventProvince : affectationProvince;
@@ -879,41 +954,24 @@ export function HomeDashboard() {
           </div> : (
             <div className="affectations-dashboard">
               <section className="affectations-summary-grid">
-                <div className="affectations-card affectations-card--people">
-                  <SectionTitle>Afectacion a las personas</SectionTitle>
-                  <div className="affectations-metrics affectations-metrics--two">
-                    <AffectationMetric icon={UserX} label="Personas fallecidas" value={afectacionesTotals.personas_fallecidas} tone="danger" />
-                    <AffectationMetric icon={HeartPulse} label="Personas heridas" value={afectacionesTotals.personas_heridas} tone="warning" />
-                    <AffectationMetric icon={Users} label="Personas afectadas" value={afectacionesTotals.personas_afectadas} />
-                    <AffectationMetric icon={UsersRound} label="Familias afectadas" value={afectacionesTotals.familias_afectadas} />
-                  </div>
-                </div>
-                <div className="affectations-card affectations-card--infra">
-                  <SectionTitle>Afectaciones en infraestructura</SectionTitle>
-                  <div className="affectations-metrics">
-                    <AffectationMetric icon={Home} label="Viviendas afectadas" value={afectacionesTotals.viviendas_afectadas} />
-                    <AffectationMetric icon={TriangleAlert} label="Viviendas destruidas" value={afectacionesTotals.viviendas_destruidas} tone="danger" />
-                    <AffectationMetric icon={Vote} label="Recintos electorales afectados" value={afectacionesTotals.recintos_electorales_afectados} tone="purple" />
-                    <AffectationMetric icon={OctagonX} label="Recintos electorales destruidos" value={afectacionesTotals.recintos_electorales_destruidos} tone="danger" />
-                    <AffectationMetric icon={Landmark} label="Bien publico afectado" value={afectacionesTotals.bien_publico_afectado} />
-                    <AffectationMetric icon={Ban} label="Bien publico destruido" value={afectacionesTotals.bien_publico_destruido} tone="danger" />
-                    <AffectationMetric icon={Building2} label="Bien privado afectado" value={afectacionesTotals.bien_privado_afectado} />
-                    <AffectationMetric icon={Warehouse} label="Bien privado destruido" value={afectacionesTotals.bien_privado_destruido} tone="danger" />
-                    <AffectationMetric icon={Bridge} label="Puentes afectados" value={afectacionesTotals.puentes_afectados} tone="warning" />
-                    <AffectationMetric icon={Ban} label="Puentes destruidos" value={afectacionesTotals.puentes_destruidos} tone="danger" />
-                    <AffectationMetric icon={Route} label="Vias primer orden (m)" value={afectacionesTotals.vias_primer_orden} tone="success" />
-                    <AffectationMetric icon={Route} label="Vias segundo orden (m)" value={afectacionesTotals.vias_segundo_orden} tone="success" />
-                    <AffectationMetric icon={Route} label="Vias tercer orden (m)" value={afectacionesTotals.vias_tercer_orden} tone="success" />
-                    <AffectationMetric icon={Route} label="Total vias afectadas (m)" value={totalViasAfectadas} tone="success" />
-                  </div>
-                </div>
-                <div className="affectations-card affectations-card--coverage">
-                  <SectionTitle>Cobertura vegetal y animales</SectionTitle>
-                  <div className="affectations-metrics affectations-metrics--two">
-                    <AffectationMetric icon={Wheat} label="Ha cultivos afectados" value={afectacionesTotals.hectareas_cultivos_afectados} tone="success" />
-                    <AffectationMetric icon={Sprout} label="Ha cultivos perdidos" value={afectacionesTotals.hectareas_cultivos_perdidos} tone="warning" />
-                    <AffectationMetric icon={PawPrint} label="Animales afectados" value={afectacionesTotals.animales_afectados} />
-                    <AffectationMetric icon={OctagonX} label="Animales muertos" value={afectacionesTotals.animales_muertos} tone="danger" />
+                <div className="affectations-card affectations-card--variables">
+                  <SectionTitle>Variables de afectacion</SectionTitle>
+                  <div className="affectations-metrics affectations-metrics--dynamic">
+                    {afectacionVariables.map((variable) => {
+                      const variableId = affectationVariableId(variable);
+                      const variableName = affectationVariableName(variable);
+                      const visual = affectationVisual(variableName);
+                      return (
+                        <AffectationMetric
+                          key={variableId}
+                          icon={visual.icon}
+                          label={variableName}
+                          value={affectationVariableTotals.get(variableId) || 0}
+                          tone={visual.tone}
+                        />
+                      );
+                    })}
+                    {!afectacionVariables.length ? <span className="dashboard-empty">No hay variables de afectacion configuradas.</span> : null}
                   </div>
                 </div>
                 <div className="affectations-card affectations-card--events">
@@ -921,7 +979,7 @@ export function HomeDashboard() {
                   <div className="affectations-big-number">
                     <Activity size={42} strokeWidth={2.4} aria-hidden="true" />
                     <span>Total eventos</span>
-                    <strong>{afectacionesTotals.evento}</strong>
+                    <strong>{totalAffectationEvents}</strong>
                   </div>
                 </div>
               </section>
@@ -934,7 +992,7 @@ export function HomeDashboard() {
                   dataSource={filteredAfectaciones}
                   pagination={{ pageSize: 12, showSizeChanger: false }}
                   size="small"
-                  scroll={{ x: 2600 }}
+                  scroll={{ x: Math.max(900, 300 + afectacionVariables.length * 160) }}
                 />
               </section>
             </div>

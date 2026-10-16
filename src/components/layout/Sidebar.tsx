@@ -7,7 +7,11 @@ import { dashboardItem, menuItems } from './menuConfig';
 type SidebarProps = { collapsed: boolean; mobileOpen: boolean; onClose: () => void };
 
 export function Sidebar({ collapsed, mobileOpen, onClose }: SidebarProps) {
-  const { logout } = useAuth();
+  const { datosLogin, logout } = useAuth();
+  const administratorAliases = ['admin', 'administrador'];
+  const isAdministrator = [datosLogin?.perfil_nombre, datosLogin?.usuario_login, datosLogin?.usuario, datosLogin?.nombres]
+    .some((value) => administratorAliases.some((alias) => String(value || '').trim().localeCompare(alias, 'es', { sensitivity: 'base' }) === 0));
+  const visibleMenuItems = menuItems.filter((item) => !item.administratorOnly || isAdministrator);
 
   return (
     <aside className={`sidebar ${collapsed ? 'sidebar--collapsed' : ''} ${mobileOpen ? 'sidebar--mobile-open' : ''}`}>
@@ -18,7 +22,7 @@ export function Sidebar({ collapsed, mobileOpen, onClose }: SidebarProps) {
 
       <nav className="sidebar__nav" aria-label="Navegacion principal">
         <span className="nav-label nav-label--group">Monitoreo Eventos</span>
-        {menuItems.map((item) => <SidebarLink key={item.path} item={item} collapsed={collapsed} onNavigate={onClose} />)}
+        {visibleMenuItems.map((item) => <SidebarLink key={item.path} item={item} collapsed={collapsed} onNavigate={onClose} />)}
         <span className="nav-label nav-label--group">Resultados</span>
         <SidebarLink item={dashboardItem} collapsed={collapsed} onNavigate={onClose} />
       </nav>

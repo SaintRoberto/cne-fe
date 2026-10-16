@@ -1,13 +1,15 @@
 import { useEffect, useState } from 'react';
-import { Alert, Breadcrumb, Button, Card, Skeleton, Space, Tag, Typography } from 'antd';
+import { Alert, Breadcrumb, Button, Card, Skeleton, Space, Tag, message } from 'antd';
 import { ArrowLeftOutlined } from '@ant-design/icons';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import dayjs from 'dayjs';
+import { Link, useBlocker, useNavigate, useParams } from 'react-router-dom';
 import { EventoAfectacionesMatrix, type EventoAfectacionesEvento } from '../../components/afectaciones/EventoAfectacionesMatrix';
 import { API_BASE_URL } from '../../config/env';
 import { useAuth } from '../../context/AuthContext';
 
 type EventoDetalleApi = EventoAfectacionesEvento & {
   evento_fecha?: string;
+  fecha_evento?: string;
   evento_causa_nombre?: string;
   evento_origen_nombre?: string;
   provincia_nombre?: string;
@@ -29,6 +31,24 @@ export function EventoAfectaciones() {
   const [evento, setEvento] = useState<EventoDetalleApi | null>(null);
   const [loading, setLoading] = useState(!invalidEventoId);
   const [error, setError] = useState<string | null>(null);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const blocker = useBlocker(hasUnsavedChanges);
+
+  useEffect(() => {
+    if (blocker.state !== 'blocked') return;
+    message.warning('Guarda los cambios de la matriz antes de salir de esta pantalla.');
+    blocker.reset();
+  }, [blocker]);
+
+  useEffect(() => {
+    if (!hasUnsavedChanges) return;
+    const preventWindowExit = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', preventWindowExit);
+    return () => window.removeEventListener('beforeunload', preventWindowExit);
+  }, [hasUnsavedChanges]);
 
   useEffect(() => {
     if (invalidEventoId) return;
@@ -65,6 +85,8 @@ export function EventoAfectaciones() {
   const eventName = evento
     ? [evento.evento_tipo_nombre, evento.evento_subtipo_nombre].filter(Boolean).join(' / ') || evento.descripcion || `Evento #${evento.id}`
     : '';
+  const eventDate = evento?.evento_fecha || evento?.fecha_evento;
+  const eventDateLabel = eventDate && dayjs(eventDate).isValid() ? dayjs(eventDate).format('DD/MM/YYYY HH:mm') : '';
 
   return (
     <section className="evento-afectaciones-page">
@@ -72,7 +94,7 @@ export function EventoAfectaciones() {
         className="evento-afectaciones-page__breadcrumb"
         items={[
           { title: <Link to="/eventos-adversos">Eventos Adversos</Link> },
-          { title: evento ? `Evento #${evento.id}` : 'Gestión de afectaciones' },
+          { title: evento ? eventName : 'Gestión de afectaciones' },
         ]}
       />
 
@@ -92,23 +114,26 @@ export function EventoAfectaciones() {
         <Card className="functional-card">
           <div className="evento-afectaciones-page__header">
             <div>
-              <span className="eyebrow">Eventos adversos</span>
-              <Typography.Title level={2}>Gestión de afectaciones — {eventName}</Typography.Title>
-              <Space size={[6, 6]} wrap>
-                <Tag color="blue">Evento #{evento.id}</Tag>
+              <span className="eyebrow">Matriz de Afectaciones</span>
+              <Space className="evento-afectaciones-page__tags" size={6}>
+                <span className="evento-afectaciones-page__tag-label">Tipo Evento:</span>
+                <Tag color="blue">{eventName}</Tag>
                 {evento.provincia_nombre ? <Tag>{evento.provincia_nombre}</Tag> : null}
                 {evento.canton_nombre ? <Tag>{evento.canton_nombre}</Tag> : null}
                 {evento.parroquia_nombre ? <Tag>{evento.parroquia_nombre}</Tag> : null}
+                {evento.infraestructura_nombre || evento.infraestructura ? (
+                  <Tag color="purple">Recinto: {evento.infraestructura_nombre || evento.infraestructura}</Tag>
+                ) : null}
                 {evento.sector ? <Tag>Sector: {evento.sector}</Tag> : null}
+                {eventDateLabel ? <Tag color="cyan">Fecha: {eventDateLabel}</Tag> : null}
               </Space>
-              {evento.descripcion ? <Typography.Paragraph>{evento.descripcion}</Typography.Paragraph> : null}
             </div>
             <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/eventos-adversos')}>
               Volver al listado
             </Button>
           </div>
 
-          <EventoAfectacionesMatrix evento={evento} />
+          <EventoAfectacionesMatrix evento={evento} onDirtyChange={setHasUnsavedChanges} />
         </Card>
       )}
     </section>

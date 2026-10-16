@@ -11,6 +11,7 @@ import { EventoAfectaciones } from './pages/eventos/EventoAfectaciones';
 import { Afectaciones } from './pages/afectaciones/Afectaciones';
 import { ImportarInfraestructuras } from './pages/infraestructuras/ImportarInfraestructuras';
 import { MaestroDpa } from './pages/ubicaciones/MaestroDpa';
+import EmergencySelection from './pages/EmergencySelection';
 
 export default function App() {
   return (
@@ -20,6 +21,7 @@ export default function App() {
           <Routes>
             <Route path="/login" element={<Login />} />
             <Route element={<ProtectedRoute />}>
+              <Route path="/seleccionar-emergencia" element={<EmergencySelection />} />
               <Route element={<AppLayout />}>
                 <Route index element={<HomeDashboard />} />
                 <Route path="eventos-adversos" element={<EventosAdversos />} />

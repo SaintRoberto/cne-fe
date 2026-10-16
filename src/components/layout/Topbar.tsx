@@ -49,6 +49,9 @@ export function Topbar({ onMenu }: { onMenu: () => void }) {
         <button className="icon-button topbar__menu" onClick={onMenu} aria-label="Abrir menu"><Menu size={21} /></button>
         <h1>Sistemas COE - CNE</h1>
       </div>
+      <div className="topbar__brand">
+        <img src="/LOGOECUADOR.png" alt="Gobierno del Ecuador - Secretaria Nacional de Gestion de Riesgos" />
+      </div>
       <div className="topbar__actions">
         {contextChips.length ? (
           <div className="context-chips" aria-label="Contexto DPA">
