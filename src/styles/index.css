@@ -490,13 +490,19 @@ a { color: inherit; text-decoration: none; }
 .dpa-actions { display: flex; align-items: center; min-height: 42px; margin-top: 20px; }
 .dpa-processing { display: inline-flex; align-items: center; gap: 8px; color: #475569; font-size: 13px; }
 .dpa-result { margin-top: 12px; }
+.dpa-coordinate-warnings { max-height: 220px; margin-top: 12px; overflow: auto; }
+.dpa-coordinate-warnings ul { margin: 8px 0 0; padding-left: 20px; }
+.dpa-coordinate-warnings li { margin-bottom: 4px; }
 .dpa-alert { margin-top: 18px; }
+.infraestructuras-import-emergency { display: grid; gap: 8px; margin: 0 0 18px; }
+.infraestructuras-import-emergency > label { color: #334155; font-size: 13px; font-weight: 700; }
 .base-crud { min-width: 0; }
 .base-crud__header { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
 .base-crud__header h2, .base-crud__header .ant-typography { margin: 2px 0 0 !important; color: #0f172a; font-size: 24px !important; font-weight: 800 !important; }
 .eyebrow { color: #0095ab; font-size: 12px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; }
-.base-crud__toolbar { display: flex; justify-content: flex-end; margin-bottom: 12px; }
+.base-crud__toolbar { display: flex; justify-content: flex-end; gap: 12px; margin-bottom: 12px; }
 .base-crud__toolbar .ant-input-affix-wrapper { width: min(360px, 100%); }
+.infraestructuras-import-page__toolbar .ant-select { margin-right: auto; }
 .base-crud__table-wrap { overflow-x: auto; border: 1px solid #e5edf6; border-radius: 8px; }
 .base-crud__table { margin: 0; min-width: 760px; }
 .base-crud__table thead th { color: #0f172a; background: #f3f8fd; font-size: 12px; text-transform: uppercase; }

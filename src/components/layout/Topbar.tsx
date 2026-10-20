@@ -9,10 +9,14 @@ function meaningfulText(value: unknown) {
 }
 
 export function Topbar({ onMenu }: { onMenu: () => void }) {
-  const { user, datosLogin, logout } = useAuth();
+  const { user, datosLogin, selectedEmergencia, logout } = useAuth();
   const { notifications, unreadCount, markAsRead } = useNotifications();
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const notificationRef = useRef<HTMLDivElement>(null);
+  const userName = [meaningfulText(datosLogin?.nombres), meaningfulText(datosLogin?.apellidos)].filter(Boolean).join(' ')
+    || meaningfulText(datosLogin?.usuario_descripcion)
+    || meaningfulText(datosLogin?.usuario_login)
+    || meaningfulText(user?.name);
   const contextChips = [
     {
       className: 'chip--green',
@@ -28,7 +32,7 @@ export function Topbar({ onMenu }: { onMenu: () => void }) {
     },
     {
       className: 'chip--blue',
-      label: meaningfulText(datosLogin?.mesa_nombre) || meaningfulText(datosLogin?.mesa_grupo_nombre),
+      label: meaningfulText(selectedEmergencia?.emergencia),
     },
   ].filter((chip) => chip.label);
 
@@ -92,7 +96,7 @@ export function Topbar({ onMenu }: { onMenu: () => void }) {
           ) : null}
         </div>
         <button className="icon-button topbar__user" aria-label="Abrir perfil"><UserRound size={18} /></button>
-        <div className="topbar__profile"><span>{datosLogin?.perfil_nombre || user?.role}</span></div>
+        <div className="topbar__profile"><span>{userName}</span></div>
         <button className="icon-button topbar__logout" onClick={logout} aria-label="Cerrar sesion"><LogOut size={19} /></button>
       </div>
     </header>

@@ -326,29 +326,12 @@ export function EventoAfectacionesMatrix({ evento, onDirtyChange }: Props) {
     },
   })), [drawerOpen, openCell, registrosByVariable, selectedVariable?.id, variables]);
 
-  const columns = useMemo<ColumnsType<MatrixRow>>(() => [
-    {
-      title: 'Evento / Recinto',
-      key: 'evento',
-      fixed: 'left',
-      width: 230,
-      render: (_: unknown, row: MatrixRow) => (
-        <div className="evento-afectaciones-row-title">
-          <strong>{row.evento}</strong>
-          <span>{row.recinto}</span>
-          {row.sector ? <small>{row.sector}</small> : null}
-        </div>
-      ),
-    },
-    ...variableColumns,
-  ], [variableColumns]);
-
-  const displayedColumns = useMemo<ColumnsType<MatrixRow>>(() => variableColumns.length ? columns : [columns[0], {
+  const displayedColumns = useMemo<ColumnsType<MatrixRow>>(() => variableColumns.length ? variableColumns : [{
     title: 'Categorias de afectacion',
     key: 'pending-categories',
     width: 520,
     render: () => <div className="evento-afectaciones-placeholder">La matriz aparecera aqui cuando el backend entregue las categorias de afectacion.</div>,
-  }], [columns, variableColumns.length]);
+  }], [variableColumns]);
 
   return (
     <section className="evento-afectaciones-matrix">
@@ -362,7 +345,7 @@ export function EventoAfectacionesMatrix({ evento, onDirtyChange }: Props) {
       {error ? <Alert className="mb-3" type="warning" showIcon message={error} /> : null}
 
       <Spin spinning={loading}>
-        <Table<MatrixRow> bordered size="middle" rowKey="key" scroll={{ x: Math.max(760, 230 + variables.length * 230) }} columns={displayedColumns} dataSource={[matrixRow]} pagination={false} />
+        <Table<MatrixRow> bordered size="middle" rowKey="key" scroll={{ x: Math.max(760, variables.length * 230) }} columns={displayedColumns} dataSource={[matrixRow]} pagination={false} />
       </Spin>
 
       <Drawer width={520} destroyOnHidden title={selectedVariable ? `Evento/Recinto: ${matrixRow.evento} - ${matrixRow.recinto}` : 'Afectacion'} open={drawerOpen} onClose={() => setDrawerOpen(false)}>

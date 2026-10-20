@@ -303,8 +303,10 @@ export function EventosAdversos() {
   const emergenciaId = Number(selectedEmergenciaId || datosLogin?.emergencia_id || localStorage.getItem('selectedEmergenciaId') || 0);
   const institucionId = Number(datosLogin?.institucion_id || loginResponse?.usuario?.institucion_id || 0);
   const provinciaId = Number(datosLogin?.provincia_id || 0);
+  const usuarioLogin = String(datosLogin?.usuario_login || datosLogin?.usuario || '').trim();
   const isAdmin = provinciaId === 0;
   const administratorAliases = ['admin', 'administrador'];
+  const isAdminUser = administratorAliases.some((alias) => usuarioLogin.localeCompare(alias, 'es', { sensitivity: 'base' }) === 0);
   const showProvinceColumn = [datosLogin?.perfil_nombre, datosLogin?.usuario_login, datosLogin?.usuario, datosLogin?.nombres]
     .some((value) => administratorAliases.some((alias) => String(value || '').trim().localeCompare(alias, 'es', { sensitivity: 'base' }) === 0));
   const cantonId = Number(datosLogin?.canton_id || 0);
@@ -320,9 +322,9 @@ export function EventosAdversos() {
     setLoading(true);
     setError(null);
     try {
-      const endpoint = isAdmin
+      const endpoint = isAdminUser
         ? `${API_BASE_URL}/eventos`
-        : `${API_BASE_URL}/eventos/provincia/${provinciaId}`;
+        : `${API_BASE_URL}/eventos/provincia/${provinciaId}/usuario/${encodeURIComponent(usuarioLogin)}`;
       const response = await authFetch(endpoint);
       if (!response.ok) throw new Error('No se pudieron cargar los eventos adversos');
       const data = unwrapArray<EventoItem>(await readJson<unknown>(response));
@@ -333,7 +335,7 @@ export function EventosAdversos() {
     } finally {
       setLoading(false);
     }
-  }, [authFetch, isAdmin, provinciaId]);
+  }, [authFetch, isAdminUser, provinciaId, usuarioLogin]);
 
   useEffect(() => {
     let cancelled = false;

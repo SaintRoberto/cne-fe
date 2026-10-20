@@ -118,13 +118,13 @@ export function EventoAfectaciones() {
               <Space className="evento-afectaciones-page__tags" size={6}>
                 <span className="evento-afectaciones-page__tag-label">Tipo Evento:</span>
                 <Tag color="blue">{eventName}</Tag>
-                {evento.provincia_nombre ? <Tag>{evento.provincia_nombre}</Tag> : null}
-                {evento.canton_nombre ? <Tag>{evento.canton_nombre}</Tag> : null}
-                {evento.parroquia_nombre ? <Tag>{evento.parroquia_nombre}</Tag> : null}
                 {evento.infraestructura_nombre || evento.infraestructura ? (
                   <Tag color="purple">Recinto: {evento.infraestructura_nombre || evento.infraestructura}</Tag>
                 ) : null}
-                {evento.sector ? <Tag>Sector: {evento.sector}</Tag> : null}
+                Provincia: {evento.provincia_nombre ? <Tag>{evento.provincia_nombre}</Tag> : null}
+                Canton: {evento.canton_nombre ? <Tag>{evento.canton_nombre}</Tag> : null}
+                Parroquia: {evento.parroquia_nombre ? <Tag>{evento.parroquia_nombre}</Tag> : null}
+
                 {eventDateLabel ? <Tag color="cyan">Fecha: {eventDateLabel}</Tag> : null}
               </Space>
             </div>
