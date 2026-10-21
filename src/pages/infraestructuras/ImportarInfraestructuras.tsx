@@ -10,7 +10,7 @@ const MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024;
 
 type ImportSummary = {
   mensaje?: string;
-  emergencia_id?: number;
+  infraestructura_tipo_id?: number;
   filas_procesadas: number;
   creados: number;
   actualizados: number;
@@ -29,7 +29,6 @@ type ImportSummary = {
 
 type InfraestructuraItem = {
   id: number | string;
-  emergencia_id?: number;
   infraestructura_tipo_id?: number;
   dpa?: string;
   nombre?: string;
@@ -45,14 +44,8 @@ type InfraestructuraItem = {
 
 type InfraestructuraTipoItem = {
   id: number;
-  emergencia_id?: number;
-};
-
-type EmergenciaItem = {
-  id?: number;
-  emergencia_id?: number;
   nombre?: string;
-  emergencia?: string;
+  siglas?: string;
 };
 
 function unwrapArray<T>(payload: unknown): T[] {
@@ -80,14 +73,13 @@ export function ImportarInfraestructuras() {
   const navigate = useNavigate();
   const [items, setItems] = useState<InfraestructuraItem[]>([]);
   const [infraestructuraTipos, setInfraestructuraTipos] = useState<InfraestructuraTipoItem[]>([]);
-  const [emergencias, setEmergencias] = useState<EmergenciaItem[]>([]);
-  const [emergenciaFilterId, setEmergenciaFilterId] = useState<number | undefined>();
+  const [infraestructuraTipoFilterId, setInfraestructuraTipoFilterId] = useState<number | undefined>();
   const [gridLoading, setGridLoading] = useState(true);
   const [gridError, setGridError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [modalOpen, setModalOpen] = useState(false);
-  const [importEmergenciaId, setImportEmergenciaId] = useState<number | undefined>();
+  const [importInfraestructuraTipoId, setImportInfraestructuraTipoId] = useState<number | undefined>();
   const [file, setFile] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [summary, setSummary] = useState<ImportSummary | null>(null);
@@ -98,29 +90,28 @@ export function ImportarInfraestructuras() {
     setGridLoading(true);
     setGridError(null);
     try {
-      const [infraestructurasResponse, tiposResponse, emergenciasResponse] = await Promise.all([
-        authFetch(`${API_BASE_URL}/infraestructuras`),
+      const infraestructurasUrl = infraestructuraTipoFilterId
+        ? `${API_BASE_URL}/infraestructuras/infraestructura_tipo/${infraestructuraTipoFilterId}`
+        : `${API_BASE_URL}/infraestructuras`;
+      const [infraestructurasResponse, tiposResponse] = await Promise.all([
+        authFetch(infraestructurasUrl),
         authFetch(`${API_BASE_URL}/infraestructura-tipos`),
-        authFetch(`${API_BASE_URL}/emergencias/todas`),
       ]);
-      if (!infraestructurasResponse.ok || !tiposResponse.ok || !emergenciasResponse.ok) throw new Error('No se pudieron cargar infraestructuras');
-      const [infraestructurasData, tiposData, emergenciasData] = await Promise.all([
+      if (!infraestructurasResponse.ok || !tiposResponse.ok) throw new Error('No se pudieron cargar infraestructuras');
+      const [infraestructurasData, tiposData] = await Promise.all([
         readJson<unknown>(infraestructurasResponse),
         readJson<unknown>(tiposResponse),
-        readJson<unknown>(emergenciasResponse),
       ]);
       setItems(unwrapArray<InfraestructuraItem>(infraestructurasData));
       setInfraestructuraTipos(unwrapArray<InfraestructuraTipoItem>(tiposData));
-      setEmergencias(unwrapArray<EmergenciaItem>(emergenciasData));
     } catch {
       setGridError('No se pudo cargar el catalogo de infraestructuras.');
       setItems([]);
       setInfraestructuraTipos([]);
-      setEmergencias([]);
     } finally {
       setGridLoading(false);
     }
-  }, [authFetch]);
+  }, [authFetch, infraestructuraTipoFilterId]);
 
   useEffect(() => {
     void loadGrid();
@@ -128,17 +119,8 @@ export function ImportarInfraestructuras() {
 
   const filteredItems = useMemo(() => {
     const term = search.trim().toLowerCase();
-    const tipoIds = emergenciaFilterId
-      ? new Set(infraestructuraTipos.filter((tipo) => tipo.emergencia_id === emergenciaFilterId).map((tipo) => tipo.id))
-      : null;
-    return items.filter((item) => {
-      const belongsToEmergency = !emergenciaFilterId
-        || (item.emergencia_id === undefined && item.infraestructura_tipo_id === undefined)
-        || item.emergencia_id === emergenciaFilterId
-        || (item.infraestructura_tipo_id !== undefined && tipoIds?.has(item.infraestructura_tipo_id));
-      return belongsToEmergency && (!term || JSON.stringify(item).toLowerCase().includes(term));
-    });
-  }, [emergenciaFilterId, infraestructuraTipos, items, search]);
+    return items.filter((item) => !term || JSON.stringify(item).toLowerCase().includes(term));
+  }, [items, search]);
 
   const pageSize = 10;
   const totalPages = Math.max(1, Math.ceil(filteredItems.length / pageSize));
@@ -146,14 +128,14 @@ export function ImportarInfraestructuras() {
 
   useEffect(() => {
     setPage(1);
-  }, [emergenciaFilterId, search]);
+  }, [infraestructuraTipoFilterId, search]);
 
   useEffect(() => {
     if (page > totalPages) setPage(totalPages);
   }, [page, totalPages]);
 
   function resetImportState() {
-    setImportEmergenciaId(undefined);
+    setImportInfraestructuraTipoId(undefined);
     setFile(null);
     setError(null);
     setSummary(null);
@@ -198,14 +180,14 @@ export function ImportarInfraestructuras() {
   }
 
   async function processFile() {
-    if (!file || !importEmergenciaId || processing) return;
+    if (!file || !importInfraestructuraTipoId || processing) return;
 
     setProcessing(true);
     setError(null);
     setSummary(null);
     try {
       const formData = new FormData();
-      formData.append('emergencia_id', String(importEmergenciaId));
+      formData.append('infraestructura_tipo_id', String(importInfraestructuraTipoId));
       formData.append('archivo', file);
 
       const response = await authFetch(`${API_BASE_URL}/infraestructuras/importar`, {
@@ -271,17 +253,18 @@ export function ImportarInfraestructuras() {
 
         <div className="base-crud__toolbar infraestructuras-import-page__toolbar" style={{ marginTop: 14 }}>
           <Select
-            aria-label="Filtrar infraestructuras por emergencia"
+            aria-label="Filtrar por tipo de infraestructura"
             optionFilterProp="label"
-            options={emergencias.map((emergencia) => ({
-              value: Number(emergencia.emergencia_id || emergencia.id),
-              label: emergencia.emergencia || emergencia.nombre || `Emergencia ${emergencia.emergencia_id || emergencia.id}`,
+            options={infraestructuraTipos.map((tipo) => ({
+              value: tipo.id,
+              label: tipo.nombre || tipo.siglas || `Tipo ${tipo.id}`,
             }))}
-            placeholder="Seleccione una emergencia"
+            placeholder="Todos los tipos de infraestructura"
+            allowClear
             showSearch
             style={{ width: 320 }}
-            value={emergenciaFilterId}
-            onChange={(value) => setEmergenciaFilterId(value)}
+            value={infraestructuraTipoFilterId}
+            onChange={(value) => setInfraestructuraTipoFilterId(value)}
           />
           <Input allowClear prefix={<SearchOutlined />} placeholder="Buscar" value={search} onChange={(event) => setSearch(event.target.value)} />
         </div>
@@ -344,24 +327,23 @@ export function ImportarInfraestructuras() {
           El archivo se validara antes de crear o actualizar las infraestructuras. Solo se admite un archivo CSV de hasta 5 MB.
         </Typography.Paragraph>
 
-        <div className="infraestructuras-import-emergency">
-          <label htmlFor="infraestructuras-emergencia">Emergencia</label>
+        <div className="infraestructuras-import-type">
+          <label htmlFor="infraestructuras-tipo">Tipo de infraestructura</label>
           <Select
-            id="infraestructuras-emergencia"
-            aria-label="Emergencia para importar infraestructuras"
+            id="infraestructuras-tipo"
+            aria-label="Tipo para importar infraestructuras"
             optionFilterProp="label"
-            options={emergencias.map((emergencia) => {
-              const emergenciaId = Number(emergencia.emergencia_id || emergencia.id);
-              const emergenciaNombre = emergencia.emergencia || emergencia.nombre || `Emergencia ${emergenciaId}`;
-              return { value: emergenciaId, label: `ID ${emergenciaId} - ${emergenciaNombre}` };
-            })}
-            placeholder="Seleccione la emergencia de la carga"
+            options={infraestructuraTipos.map((tipo) => ({
+              value: tipo.id,
+              label: `ID ${tipo.id} - ${tipo.nombre || tipo.siglas || `Tipo ${tipo.id}`}`,
+            }))}
+            placeholder="Seleccione el tipo de infraestructura"
             showSearch
-            value={importEmergenciaId}
-            onChange={setImportEmergenciaId}
+            value={importInfraestructuraTipoId}
+            onChange={setImportInfraestructuraTipoId}
           />
           <Typography.Text type="secondary">
-            {importEmergenciaId ? <>Se enviará <strong>emergencia_id: {importEmergenciaId}</strong></> : 'Debe seleccionar una emergencia antes de procesar el archivo.'}
+            {importInfraestructuraTipoId ? <>Se enviará <strong>infraestructura_tipo_id: {importInfraestructuraTipoId}</strong></> : 'Debe seleccionar un tipo antes de procesar el archivo.'}
           </Typography.Text>
         </div>
 
@@ -391,7 +373,7 @@ export function ImportarInfraestructuras() {
         {error ? <Alert className="dpa-alert" type="error" showIcon title="No se pudo procesar el archivo" description={error} /> : null}
 
         <Space className="dpa-actions">
-          <Button type="primary" size="large" loading={processing} disabled={!file || !importEmergenciaId || processing} onClick={() => void processFile()}>
+          <Button type="primary" size="large" loading={processing} disabled={!file || !importInfraestructuraTipoId || processing} onClick={() => void processFile()}>
             Procesar archivo
           </Button>
           {processing ? <span className="dpa-processing"><Spin size="small" /> Procesando el archivo...</span> : null}
@@ -400,7 +382,7 @@ export function ImportarInfraestructuras() {
         {summary ? <Alert className="dpa-alert" type={summary.coordenadas_corregidas?.length ? 'warning' : 'success'} showIcon title={summary.mensaje || 'Importacion de infraestructuras completada'} description={
           <div>
             <Descriptions className="dpa-result" size="small" column={{ xs: 1, sm: 2, lg: 4 }}>
-              <Descriptions.Item label="Emergencia ID">{summary.emergencia_id}</Descriptions.Item>
+              <Descriptions.Item label="Tipo infraestructura ID">{summary.infraestructura_tipo_id}</Descriptions.Item>
               <Descriptions.Item label="Filas procesadas">{summary.filas_procesadas}</Descriptions.Item>
               <Descriptions.Item label="Creados">{summary.creados}</Descriptions.Item>
               <Descriptions.Item label="Actualizados">{summary.actualizados}</Descriptions.Item>

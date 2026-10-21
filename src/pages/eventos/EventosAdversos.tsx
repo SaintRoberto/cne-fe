@@ -419,13 +419,13 @@ export function EventosAdversos() {
   }, [loadCatalog]);
 
   const loadInfraestructuras = useCallback(async (parroquiaId?: number | null) => {
-    if (!parroquiaId || !emergenciaId) {
+    if (!parroquiaId) {
       setInfraestructuras([]);
       return [];
     }
     setInfraestructurasLoading(true);
     try {
-      const data = await loadCatalog<InfraestructuraItem>(`/infraestructuras/parroquia/${parroquiaId}/infraestructura_tipo/${RECINTO_INFRAESTRUCTURA_TIPO_ID}/emergencia/${emergenciaId}`);
+      const data = await loadCatalog<InfraestructuraItem>(`/infraestructuras/parroquia/${parroquiaId}/infraestructura_tipo/${RECINTO_INFRAESTRUCTURA_TIPO_ID}`);
       setInfraestructuras(data);
       return data;
     } catch {
@@ -434,7 +434,7 @@ export function EventosAdversos() {
     } finally {
       setInfraestructurasLoading(false);
     }
-  }, [emergenciaId, loadCatalog]);
+  }, [loadCatalog]);
 
   useEffect(() => {
     void loadCantones(provinciaId);
