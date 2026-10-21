@@ -87,7 +87,12 @@ type EventoItem = {
   [key: string]: unknown;
 };
 
-const RECINTO_INFRAESTRUCTURA_TIPO_ID = 3;
+function infrastructureTypeIdForEmergency(emergencyName?: string | null) {
+  const normalizedName = String(emergencyName || '').trim().toUpperCase();
+  if (normalizedName.includes('PPL')) return 1;
+  if (normalizedName.includes('VOTO EN CASA') || /\bVC\b/.test(normalizedName)) return 2;
+  return 3;
+}
 
 const emptyEvento: EventoItem = {
   activo: true,
@@ -277,7 +282,7 @@ async function readJson<T>(response: Response): Promise<T> {
 
 export function EventosAdversos() {
   const navigate = useNavigate();
-  const { authFetch, datosLogin, loginResponse, selectedEmergenciaId } = useAuth();
+  const { authFetch, datosLogin, loginResponse, selectedEmergencia, selectedEmergenciaId } = useAuth();
   const [items, setItems] = useState<EventoItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -301,6 +306,10 @@ export function EventosAdversos() {
   const [adminParroquias, setAdminParroquias] = useState<CatalogItem[]>([]);
 
   const emergenciaId = Number(selectedEmergenciaId || datosLogin?.emergencia_id || localStorage.getItem('selectedEmergenciaId') || 0);
+  const recintoInfraestructuraTipoId = useMemo(
+    () => infrastructureTypeIdForEmergency(selectedEmergencia?.emergencia || localStorage.getItem('selectedEmergenciaName')),
+    [selectedEmergencia?.emergencia],
+  );
   const institucionId = Number(datosLogin?.institucion_id || loginResponse?.usuario?.institucion_id || 0);
   const provinciaId = Number(datosLogin?.provincia_id || 0);
   const usuarioLogin = String(datosLogin?.usuario_login || datosLogin?.usuario || '').trim();
@@ -425,7 +434,7 @@ export function EventosAdversos() {
     }
     setInfraestructurasLoading(true);
     try {
-      const data = await loadCatalog<InfraestructuraItem>(`/infraestructuras/parroquia/${parroquiaId}/infraestructura_tipo/${RECINTO_INFRAESTRUCTURA_TIPO_ID}`);
+      const data = await loadCatalog<InfraestructuraItem>(`/infraestructuras/parroquia/${parroquiaId}/infraestructura_tipo/${recintoInfraestructuraTipoId}`);
       setInfraestructuras(data);
       return data;
     } catch {
@@ -434,7 +443,7 @@ export function EventosAdversos() {
     } finally {
       setInfraestructurasLoading(false);
     }
-  }, [loadCatalog]);
+  }, [loadCatalog, recintoInfraestructuraTipoId]);
 
   useEffect(() => {
     void loadCantones(provinciaId);
