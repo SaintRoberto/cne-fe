@@ -12,6 +12,7 @@ const routeMenuIds: Record<string, number> = {
   '/afectaciones': 3,
   '/infraestructuras': 4,
   '/maestro-dpa': 5,
+  '/usuarios': 6,
 };
 
 export function MenuProvider({ children }: { children: ReactNode }) {

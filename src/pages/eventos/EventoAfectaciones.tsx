@@ -115,18 +115,24 @@ export function EventoAfectaciones() {
           <div className="evento-afectaciones-page__header">
             <div>
               <span className="eyebrow">Matriz de Afectaciones</span>
-              <Space className="evento-afectaciones-page__tags" size={6}>
-                <span className="evento-afectaciones-page__tag-label">Tipo Evento:</span>
-                <Tag color="blue">{eventName}</Tag>
-                {evento.infraestructura_nombre || evento.infraestructura ? (
-                  <Tag color="purple">Recinto: {evento.infraestructura_nombre || evento.infraestructura}</Tag>
-                ) : null}
-                Provincia: {evento.provincia_nombre ? <Tag>{evento.provincia_nombre}</Tag> : null}
-                Canton: {evento.canton_nombre ? <Tag>{evento.canton_nombre}</Tag> : null}
-                Parroquia: {evento.parroquia_nombre ? <Tag>{evento.parroquia_nombre}</Tag> : null}
-
-                {eventDateLabel ? <Tag color="cyan">Fecha: {eventDateLabel}</Tag> : null}
-              </Space>
+              <div className="evento-afectaciones-page__tags">
+                <Space className="evento-afectaciones-page__tag-row" size={6}>
+                  <span className="evento-afectaciones-page__tag-label">Provincia:</span>
+                  {evento.provincia_nombre ? <Tag>{evento.provincia_nombre}</Tag> : null}
+                  <span className="evento-afectaciones-page__tag-label">Cantón:</span>
+                  {evento.canton_nombre ? <Tag>{evento.canton_nombre}</Tag> : null}
+                  <span className="evento-afectaciones-page__tag-label">Parroquia:</span>
+                  {evento.parroquia_nombre ? <Tag>{evento.parroquia_nombre}</Tag> : null}
+                  {eventDateLabel ? <Tag color="cyan">Fecha: {eventDateLabel}</Tag> : null}
+                </Space>
+                <Space className="evento-afectaciones-page__tag-row" size={6}>
+                  <span className="evento-afectaciones-page__tag-label">Tipo Evento:</span>
+                  <Tag color="blue">{eventName}</Tag>
+                  {evento.infraestructura_nombre || evento.infraestructura ? (
+                    <Tag color="purple">Recinto: {evento.infraestructura_nombre || evento.infraestructura}</Tag>
+                  ) : null}
+                </Space>
+              </div>
             </div>
             <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/eventos-adversos')}>
               Volver al listado

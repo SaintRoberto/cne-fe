@@ -19,10 +19,6 @@ export function Topbar({ onMenu }: { onMenu: () => void }) {
     || meaningfulText(user?.name);
   const contextChips = [
     {
-      className: 'chip--green',
-      label: meaningfulText(datosLogin?.coe_abreviatura) || meaningfulText(datosLogin?.coe_nombre),
-    },
-    {
       className: 'chip--purple',
       label: meaningfulText(datosLogin?.provincia_nombre),
     },
@@ -51,7 +47,7 @@ export function Topbar({ onMenu }: { onMenu: () => void }) {
     <header className="topbar">
       <div className="topbar__leading">
         <button className="icon-button topbar__menu" onClick={onMenu} aria-label="Abrir menu"><Menu size={21} /></button>
-        <h1>Sistemas COE - CNE</h1>
+        
       </div>
       <div className="topbar__brand">
         <img src="/LOGOECUADOR.png" alt="Gobierno del Ecuador - Secretaria Nacional de Gestion de Riesgos" />

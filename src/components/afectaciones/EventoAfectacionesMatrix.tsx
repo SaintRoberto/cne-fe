@@ -97,6 +97,52 @@ function variableName(variable: AfectacionVariable): string {
   return variable.nombre || variable.descripcion || `Variable ${variable.id}`;
 }
 
+function normalizedVariableName(variable: AfectacionVariable): string {
+  return variableName(variable)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+function affectationVariableOrder(variable: AfectacionVariable): number {
+  const name = normalizedVariableName(variable);
+  const has = (...terms: string[]) => terms.every((term) => name.includes(term));
+
+  if (has('recinto', 'afect')) return 0;
+  if (has('recinto', 'destruid')) return 1;
+  if (has('persona', 'afect', 'indirect')) return 7;
+  if (has('persona', 'afect', 'direct')) return 5;
+  if (has('persona', 'fallecid')) return 2;
+  if (has('persona', 'herid')) return 3;
+  if (has('persona', 'evacuad')) return 4;
+  if (has('familia', 'afect')) return 6;
+  if (has('vivienda', 'afect')) return 8;
+  if (has('vivienda', 'destruid')) return 9;
+  if (has('centro', 'salud', 'afect')) return 10;
+  if (has('centro', 'salud', 'destruid')) return 11;
+  if (has('bien', 'public', 'afect')) return 12;
+  if (has('bien', 'public', 'destruid')) return 13;
+  if (has('bien', 'privad', 'afect')) return 14;
+  if (has('bien', 'privad', 'destruid')) return 15;
+  if (has('puente', 'afect')) return 16;
+  if (has('puente', 'destruid')) return 17;
+  if (has('metro', 'lineal', 'via', 'afect')) return 18;
+  if (has('cultivo', 'afect')) return 19;
+  if (has('cultivo', 'perdid')) return 20;
+  if (has('cobertura', 'vegetal', 'quemad')) return 21;
+  if (has('animal', 'afect')) return 22;
+  if (has('animal', 'muert')) return 23;
+  return 1000;
+}
+
+function compareAffectationVariables(a: AfectacionVariable, b: AfectacionVariable): number {
+  const requestedOrder = affectationVariableOrder(a) - affectationVariableOrder(b);
+  if (requestedOrder) return requestedOrder;
+  return Number(a.orden || a.id) - Number(b.orden || b.id);
+}
+
 function normalId(value: unknown): string {
   return String(value ?? '').trim();
 }
@@ -189,7 +235,7 @@ export function EventoAfectacionesMatrix({ evento, onDirtyChange }: Props) {
 
       if (variablesResponse.ok) {
         const variablesData = unwrapArray<AfectacionVariable>(await readJson<unknown>(variablesResponse));
-        setVariables([...variablesData].sort((a, b) => Number(a.orden || a.id) - Number(b.orden || b.id)));
+        setVariables([...variablesData].sort(compareAffectationVariables));
       } else {
         setVariables([]);
         loadErrors.push('No se pudieron cargar las categorias de afectacion.');
@@ -310,7 +356,7 @@ export function EventoAfectacionesMatrix({ evento, onDirtyChange }: Props) {
         <button type="button" className={`evento-afectacion-cell${isActive ? ' evento-afectacion-cell--active' : ''}`} aria-label={`Gestionar ${variableName(variable)}`} onClick={() => void openCell(variable)}>
           <span className="evento-afectacion-cell__metric">
             <small>Cantidad</small>
-            <strong className={`evento-afectacion-cell__bar evento-afectacion-cell__bar--${cantidadTone(cantidad)}`}>
+            <strong className={`evento-afectacion-cell__bar evento-afectacion-cell__bar--${cantidadTone(cantidad)}${cantidad <= 45 ? ' evento-afectacion-cell__bar--dark-text' : ''}`}>
               <span style={{ width: `${percent}%` }} />
               <b>{cantidad.toLocaleString('es-EC')}</b>
             </strong>

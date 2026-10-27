@@ -52,12 +52,10 @@ type EventoItem = {
   canton_id?: number | null;
   parroquia_id?: number | null;
   tipo_id?: number | null;
-  subtipo_id?: number | null;
   causa_id?: number | null;
   origen_id?: number | null;
   atencion_estado_id?: number | null;
   evento_tipo_id?: number | null;
-  evento_subtipo_id?: number | null;
   evento_causa_id?: number | null;
   evento_origen_id?: number | null;
   evento_atencion_estado_id?: number | null;
@@ -67,7 +65,6 @@ type EventoItem = {
   canton?: string;
   parroquia?: string;
   tipo?: string;
-  subtipo?: string;
   causa?: string;
   origen?: string;
   atencion_estado?: string;
@@ -79,7 +76,6 @@ type EventoItem = {
   evento_causa_nombre?: string;
   evento_origen_nombre?: string;
   evento_tipo_nombre?: string;
-  evento_subtipo_nombre?: string;
   provincia_nombre?: string;
   canton_nombre?: string;
   parroquia_nombre?: string;
@@ -108,7 +104,6 @@ const emptyEvento: EventoItem = {
   parroquia_id: null,
   infraestructura_id: null,
   tipo_id: null,
-  subtipo_id: null,
   causa_id: null,
   atencion_estado_id: 1,
 };
@@ -288,7 +283,6 @@ export function EventosAdversos() {
   const [error, setError] = useState<string | null>(null);
   const [causas, setCausas] = useState<CatalogItem[]>([]);
   const [tipos, setTipos] = useState<CatalogItem[]>([]);
-  const [subtipos, setSubtipos] = useState<CatalogItem[]>([]);
   const [atencionEstados, setAtencionEstados] = useState<CatalogItem[]>([]);
   const [provincias, setProvincias] = useState<CatalogItem[]>([]);
   const [cantones, setCantones] = useState<CatalogItem[]>([]);
@@ -382,21 +376,6 @@ export function EventosAdversos() {
     void loadItems();
   }, [loadItems]);
 
-  const loadSubtipos = useCallback(async (tipoId?: number | null) => {
-    if (!tipoId) {
-      setSubtipos([]);
-      return [];
-    }
-    try {
-      const data = await loadCatalog<CatalogItem>(`/evento-subtipos/tipo-evento/${tipoId}`);
-      setSubtipos(data);
-      return data;
-    } catch {
-      setSubtipos([]);
-      return [];
-    }
-  }, [loadCatalog]);
-
   const loadCantones = useCallback(async (nextProvinciaId?: number | null) => {
     if (!nextProvinciaId) {
       setCantones([]);
@@ -466,7 +445,6 @@ export function EventosAdversos() {
       fecha_evento: data.evento_fecha || data.fecha_evento,
       descripcion: data.descripcion ?? data.observacion ?? item.descripcion,
       tipo_id: data.evento_tipo_id ?? data.tipo_id,
-      subtipo_id: data.evento_subtipo_id ?? data.subtipo_id,
       causa_id: data.evento_causa_id ?? data.causa_id,
       atencion_estado_id: data.evento_atencion_estado_id ?? data.atencion_estado_id,
       infraestructura_id: data.infraestructura_id ?? item.infraestructura_id ?? null,
@@ -477,10 +455,7 @@ export function EventosAdversos() {
     const cantonName = selectedNameOf(normalizedItem, 'canton_nombre', 'canton');
     const parroquiaName = selectedNameOf(normalizedItem, 'parroquia_nombre', 'parroquia');
     const nextProvinciaId = resolveCatalogValue(data.provincia_id ?? item.provincia_id, provincias, provinciaName);
-    const [, nextCantones] = await Promise.all([
-      loadSubtipos(Number(normalizedItem.tipo_id || 0)),
-      loadCantones(nextProvinciaId),
-    ]);
+    const nextCantones = await loadCantones(nextProvinciaId);
     const nextCantonId = resolveCatalogValue(data.canton_id ?? item.canton_id, nextCantones, cantonName);
     const nextParroquias = await loadParroquias(nextCantonId);
     const nextParroquiaId = resolveCatalogValue(data.parroquia_id ?? item.parroquia_id, nextParroquias, parroquiaName);
@@ -491,7 +466,7 @@ export function EventosAdversos() {
       canton_id: nextCantonId ?? normalizedItem.canton_id,
       parroquia_id: nextParroquiaId ?? normalizedItem.parroquia_id,
     };
-  }, [authFetch, loadCantones, loadInfraestructuras, loadParroquias, loadSubtipos, provincias]);
+  }, [authFetch, loadCantones, loadInfraestructuras, loadParroquias, provincias]);
 
   const saveItem = useCallback(async (item: EventoItem) => {
     const payload = {
@@ -505,7 +480,7 @@ export function EventosAdversos() {
       evento_fecha: dateValueOf(item) ? dayjs(String(dateValueOf(item))).format('YYYY-MM-DDTHH:mm:ssZ') : undefined,
       evento_id_redm: Number(item.evento_id_redm || 0),
       evento_origen_id: null,
-      evento_subtipo_id: toNumericId(item.subtipo_id),
+      evento_subtipo_id: null,
       evento_tipo_id: toNumericId(item.tipo_id),
       infraestructura_id: toNumericId(item.infraestructura_id),
       latitud: toFiniteNumber(item.latitud),
@@ -681,6 +656,12 @@ export function EventosAdversos() {
       ? selectOptions(provincias, effectiveProvinciaValue, effectiveProvinciaName)
       : effectiveProvinciaValue ? lockedProvinceOptions(provincias, effectiveProvinciaValue, effectiveProvinciaName) : [];
     const selectedInfraestructuraName = String(item.infraestructura_nombre || item.infraestructura || '').trim();
+    const selectedInfraestructura = infraestructuras.find(
+      (infraestructura) => String(infraestructuraId(infraestructura)) === String(infraestructuraValue),
+    );
+    const isNoRecinto = normalizeText(
+      selectedInfraestructura ? infraestructuraName(selectedInfraestructura) : selectedInfraestructuraName,
+    ) === 'no recinto';
     return (
       <Form layout="vertical" className="event-form">
         <Row gutter={16}>
@@ -711,7 +692,7 @@ export function EventosAdversos() {
         </Row>
 
         <Row gutter={16}>
-          <Col xs={24} md={8}>
+          <Col xs={24} md={12}>
             <Form.Item label="Tipo de evento" required>
               <Select
                 showSearch
@@ -719,29 +700,12 @@ export function EventosAdversos() {
                 disabled={readonly}
                 value={item.tipo_id ?? undefined}
                 options={tipos.map((entry) => ({ value: entry.id, label: nameOf(entry) }))}
-                onChange={(value) => {
-                  update({ tipo_id: toNumericId(value) ?? null, subtipo_id: null });
-                  void loadSubtipos(toNumericId(value));
-                }}
+                onChange={(value) => update({ tipo_id: toNumericId(value) ?? null })}
                 placeholder="Seleccione"
               />
             </Form.Item>
           </Col>
-          <Col xs={24} md={8}>
-            <Form.Item label="Subtipo">
-              <Select
-                allowClear
-                showSearch
-                optionFilterProp="label"
-                disabled={readonly}
-                value={item.subtipo_id ?? undefined}
-                options={subtipos.map((entry) => ({ value: entry.id, label: nameOf(entry) }))}
-                onChange={(value) => update({ subtipo_id: toNumericId(value) ?? null })}
-                placeholder="Seleccione"
-              />
-            </Form.Item>
-          </Col>
-          <Col xs={24} md={8}>
+          <Col xs={24} md={12}>
             <Form.Item label="Causa" required>
               <Select showSearch optionFilterProp="label" disabled={readonly} value={item.causa_id ?? undefined} options={causas.map((entry) => ({ value: entry.id, label: nameOf(entry) }))} onChange={(value) => update({ causa_id: toNumericId(value) ?? null })} />
             </Form.Item>
@@ -807,22 +771,27 @@ export function EventosAdversos() {
           </Col>
         </Row>
 
-        <Form.Item label="Antecedentes">
-          <Input disabled={readonly} value={item.descripcion} onChange={(event) => update({ descripcion: event.target.value })} />
-        </Form.Item>
+        <Row gutter={16} className="event-form__details-location">
+          <Col xs={24} lg={12}>
+            <Form.Item label="Antecedentes">
+              <Input.TextArea rows={5} disabled={readonly} value={item.descripcion} onChange={(event) => update({ descripcion: event.target.value })} />
+            </Form.Item>
 
-        <Form.Item label="Ubicacion del recinto" required>
-          <MapSelector
-            readonly
-            latitude={Number(item.latitud ?? -1.05458)}
-            longitude={Number(item.longitud ?? -80.45445)}
-            onChange={() => undefined}
-          />
-        </Form.Item>
-
-        <Form.Item label="Situación Actual" required>
-          <Input.TextArea rows={2} disabled={readonly} value={item.situacion} onChange={(event) => update({ situacion: event.target.value })} />
-        </Form.Item>
+            <Form.Item label="Situación Actual" required>
+              <Input.TextArea rows={5} disabled={readonly} value={item.situacion} onChange={(event) => update({ situacion: event.target.value })} />
+            </Form.Item>
+          </Col>
+          <Col xs={24} lg={12}>
+            <Form.Item label="Ubicacion del recinto" required className="event-form__location">
+              <MapSelector
+                readonly={readonly || !isNoRecinto}
+                latitude={Number(item.latitud ?? -1.05458)}
+                longitude={Number(item.longitud ?? -80.45445)}
+                onChange={({ latitude, longitude }) => update({ latitud: latitude, longitud: longitude })}
+              />
+            </Form.Item>
+          </Col>
+        </Row>
       </Form>
     );
   }

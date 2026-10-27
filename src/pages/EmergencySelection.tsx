@@ -101,7 +101,7 @@ const EmergencySelection: React.FC = () => {
     <div className="emergency-selection">
       <div className="emergency-selection__heading">
         <span>Acceso al sistema</span>
-        <h1>Selecciona una Proceso Electoral</h1>
+        <h1>Seleccione un Proceso Electoral</h1>
       </div>
 
       {loading && <div className="emergency-selection__empty">Cargando procesos electorales...</div>}

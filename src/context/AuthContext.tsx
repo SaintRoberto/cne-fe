@@ -7,7 +7,7 @@ export type LoginResponse = {
   userId?: number;
   usuario_id?: number;
   id?: number;
-  usuario?: Record<string, unknown>;
+  usuario?: Record<string, unknown> & { debe_cambiar_clave?: boolean };
   [key: string]: unknown;
 };
 
@@ -60,11 +60,13 @@ type AuthContextValue = {
   emergencias: EmergencyItem[];
   selectedEmergencia: EmergencyItem | null;
   selectedEmergenciaId: number | null;
+  mustChangePassword: boolean;
   selectEmergencia: (emergencia: EmergencyItem) => void;
   setSelectedEmergenciaId: (id: number | null) => void;
   refreshEmergencias: () => Promise<EmergencyItem[]>;
   authFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
-  login: (username: string, password: string) => Promise<boolean>;
+  login: (username: string, password: string) => Promise<{ mustChangePassword: boolean } | null>;
+  changePassword: (newPassword: string) => Promise<void>;
   logout: () => void;
   getAccionesRespuestasPendientes: () => Promise<unknown[]>;
   getUnreadNotifications: () => Promise<unknown[]>;
@@ -194,6 +196,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [emergencias, setEmergencias] = useState<EmergencyItem[]>(stored.emergencias);
   const [selectedEmergencia, setSelectedEmergencia] = useState<EmergencyItem | null>(stored.selectedEmergencia);
   const [selectedEmergenciaIdState, setSelectedEmergenciaIdState] = useState<number | null>(stored.selectedEmergenciaId);
+  const mustChangePassword = Boolean(loginResponse?.usuario?.debe_cambiar_clave);
 
   const persist = useCallback((nextLogin: LoginResponse | null, nextDatos: DatosLogin | null, nextUser: User | null, availableEmergencies: EmergencyItem[], emergency: EmergencyItem | null) => {
     if (nextLogin?.token) localStorage.setItem(TOKEN_KEY, String(nextLogin.token));
@@ -311,11 +314,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setSelectedEmergencia(null);
       setSelectedEmergenciaIdState(null);
       persist(nextLogin, mergedDatos, nextUser, availableEmergencies, null);
-      return true;
+      return { mustChangePassword: Boolean(loginUsuario?.debe_cambiar_clave) };
     } catch {
-      return false;
+      return null;
     }
   }, [persist]);
+
+  const changePassword = useCallback(async (newPassword: string) => {
+    const response = await authFetch(`${API_BASE_URL}/usuarios/cambiar-clave`, {
+      method: 'POST',
+      body: JSON.stringify({ nueva_clave: newPassword }),
+    });
+    const payload = await parseJsonSafe<{ error?: string }>(response);
+    if (!response.ok) throw new Error(payload.error || 'No se pudo actualizar la contraseña.');
+
+    const nextLogin = loginResponse
+      ? { ...loginResponse, usuario: { ...(loginResponse.usuario || {}), debe_cambiar_clave: false } }
+      : null;
+    const nextDatos = datosLogin ? { ...datosLogin, debe_cambiar_clave: false } : null;
+    setLoginResponse(nextLogin);
+    setDatosLogin(nextDatos);
+    persist(nextLogin, nextDatos, user, emergencias, selectedEmergencia);
+  }, [authFetch, datosLogin, emergencias, loginResponse, persist, selectedEmergencia, user]);
 
   const logout = useCallback(() => {
     localStorage.removeItem(AUTH_KEY);
@@ -360,11 +380,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     emergencias,
     selectedEmergencia,
     selectedEmergenciaId: selectedEmergenciaIdState,
+    mustChangePassword,
     selectEmergencia,
     setSelectedEmergenciaId,
     refreshEmergencias,
     authFetch,
     login,
+    changePassword,
     logout,
     getUnreadNotifications,
     getAccionesRespuestasPendientes,
@@ -376,11 +398,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     emergencias,
     selectedEmergencia,
     selectedEmergenciaIdState,
+    mustChangePassword,
     selectEmergencia,
     setSelectedEmergenciaId,
     refreshEmergencias,
     authFetch,
     login,
+    changePassword,
     logout,
     getUnreadNotifications,
     getAccionesRespuestasPendientes,

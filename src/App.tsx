@@ -5,12 +5,14 @@ import { NotificationsProvider } from './context/NotificationsContext';
 import { ProtectedRoute } from './components/auth/ProtectedRoute';
 import { AppLayout } from './components/layout/AppLayout';
 import { Login } from './pages/auth/Login';
+import { ChangePassword } from './pages/auth/ChangePassword';
 import { HomeDashboard } from './pages/home/HomeDashboard';
 import { EventosAdversos } from './pages/eventos/EventosAdversos';
 import { EventoAfectaciones } from './pages/eventos/EventoAfectaciones';
 import { Afectaciones } from './pages/afectaciones/Afectaciones';
 import { ImportarInfraestructuras } from './pages/infraestructuras/ImportarInfraestructuras';
 import { MaestroDpa } from './pages/ubicaciones/MaestroDpa';
+import { Usuarios } from './pages/usuarios/Usuarios';
 import EmergencySelection from './pages/EmergencySelection';
 
 export default function App() {
@@ -21,6 +23,7 @@ export default function App() {
           <Routes>
             <Route path="/login" element={<Login />} />
             <Route element={<ProtectedRoute />}>
+              <Route path="/cambiar-clave" element={<ChangePassword />} />
               <Route path="/seleccionar-emergencia" element={<EmergencySelection />} />
               <Route element={<AppLayout />}>
                 <Route index element={<HomeDashboard />} />
@@ -30,6 +33,7 @@ export default function App() {
                 <Route path="infraestructuras" element={<ImportarInfraestructuras />} />
                 <Route path="infraestructuras/importar" element={<Navigate to="/infraestructuras" replace />} />
                 <Route path="maestro-dpa" element={<MaestroDpa />} />
+                <Route path="usuarios" element={<Usuarios />} />
               </Route>
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />

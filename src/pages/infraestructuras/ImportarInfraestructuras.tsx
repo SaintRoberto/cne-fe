@@ -253,7 +253,7 @@ export function ImportarInfraestructuras() {
 
         <div className="base-crud__toolbar infraestructuras-import-page__toolbar" style={{ marginTop: 14 }}>
           <Select
-            aria-label="Filtrar por tipo de infraestructura"
+            aria-label="Filtrar por tipo de recinto"
             optionFilterProp="label"
             options={infraestructuraTipos.map((tipo) => ({
               value: tipo.id,
@@ -328,7 +328,7 @@ export function ImportarInfraestructuras() {
         </Typography.Paragraph>
 
         <div className="infraestructuras-import-type">
-          <label htmlFor="infraestructuras-tipo">Tipo de infraestructura</label>
+          <label htmlFor="infraestructuras-tipo">Tipo de recinto</label>
           <Select
             id="infraestructuras-tipo"
             aria-label="Tipo para importar infraestructuras"
@@ -337,7 +337,7 @@ export function ImportarInfraestructuras() {
               value: tipo.id,
               label: `ID ${tipo.id} - ${tipo.nombre || tipo.siglas || `Tipo ${tipo.id}`}`,
             }))}
-            placeholder="Seleccione el tipo de infraestructura"
+            placeholder="Seleccione el "
             showSearch
             value={importInfraestructuraTipoId}
             onChange={setImportInfraestructuraTipoId}
