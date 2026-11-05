@@ -255,24 +255,25 @@ export function AfectacionesParroquiasMatrixSidePanel({
       render: (_: unknown, row: MatrixRow) => (
         <InputNumber
           min={0}
-          disabled={readOnly}
+          disabled={readOnly || saving}
           value={row.values[variable.id]}
           onChange={(value) => updateValue(row.parroquia_id, variable.id, value)}
         />
       ),
     })),
-  ], [readOnly, variables]);
+  ], [readOnly, saving, variables]);
 
   return (
-    <section className="afectaciones-matrix">
+    <section className="afectaciones-matrix" aria-busy={saving}>
+      <Spin fullscreen spinning={saving} tip="Guardando en la base de datos..." />
       <div className="base-crud__header">
         <div>
           <span className="eyebrow">Monitoreo territorial</span>
           <Typography.Title level={2}>{tableTitle}</Typography.Title>
         </div>
         <Space>
-          <Button onClick={() => void loadRegistros()}>Actualizar</Button>
-          <Button type="primary" icon={<SaveOutlined />} loading={saving} disabled={readOnly} onClick={saveAll}>Guardar matriz</Button>
+          <Button disabled={saving} onClick={() => void loadRegistros()}>Actualizar</Button>
+          <Button type="primary" icon={<SaveOutlined />} loading={saving} disabled={readOnly || saving} onClick={saveAll}>Guardar matriz</Button>
         </Space>
       </div>
 

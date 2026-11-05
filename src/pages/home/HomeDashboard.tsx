@@ -7,6 +7,7 @@ import {
   Activity,
   Bridge,
   Building2,
+  FileSpreadsheet,
   Home,
   Hospital,
   Landmark,
@@ -20,6 +21,8 @@ import {
 import { CircleMarker, MapContainer, Popup, TileLayer, useMap } from 'react-leaflet';
 import { API_BASE_URL } from '../../config/env';
 import { useAuth } from '../../context/AuthContext';
+import { AffectationsPdfExportButton } from '../../features/dashboard-pdf/AffectationsPdfExportButton';
+import { DashboardPdfExportButton } from '../../features/dashboard-pdf/DashboardPdfExportButton';
 
 type Id = number | string;
 
@@ -37,6 +40,8 @@ type EventoItem = {
   atencion_estado_id?: Id | null;
   evento_fecha?: string;
   fecha_evento?: string;
+  fecha_cierre_evento?: string | null;
+  modificacion?: string | null;
   creacion?: string;
   provincia?: string;
   provincia_nombre?: string;
@@ -59,8 +64,10 @@ type EventoItem = {
   evento_atencion_estado?: string;
   evento_atencion_estado_nombre?: string;
   sector?: string;
+  situacion?: string;
   descripcion?: string;
   observacion?: string;
+  alto_impacto?: boolean | number | string | null;
   latitud?: number | string | null;
   longitud?: number | string | null;
   [key: string]: unknown;
@@ -176,6 +183,11 @@ function normalizeText(value: string) {
   return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase().trim();
 }
 
+function isAdministratorUser(values: unknown[]) {
+  const aliases = ['admin', 'administrador'];
+  return values.some((value) => aliases.includes(normalizeText(String(value || ''))));
+}
+
 function textOf(value: unknown) {
   return String(value || '').trim();
 }
@@ -231,6 +243,13 @@ function dateOf(item: EventoItem) {
   return parsed?.isValid() ? parsed : null;
 }
 
+function endDateOf(item: EventoItem) {
+  const value = item.fecha_cierre_evento
+    || (Number(item.evento_atencion_estado_id ?? item.atencion_estado_id) === 3 ? item.modificacion : null);
+  const parsed = value ? dayjs(String(value)) : null;
+  return parsed?.isValid() ? parsed : null;
+}
+
 function provinciaOf(item: EventoItem) {
   return textOf(item.provincia_nombre || item.provincia);
 }
@@ -267,6 +286,17 @@ function estadoOf(item: EventoItem) {
 
 function descripcionOf(item: EventoItem) {
   return textOf(item.descripcion || item.observacion);
+}
+
+function situacionOf(item: EventoItem) {
+  return textOf(item.situacion);
+}
+
+function simuladoOf(item: EventoItem) {
+  const value = item.alto_impacto;
+  if (typeof value === 'boolean') return value ? 'Sí' : 'No';
+  if (typeof value === 'number') return value !== 0 ? 'Sí' : 'No';
+  return ['true', '1', 'si', 'sí'].includes(normalizeText(String(value ?? ''))) ? 'Sí' : 'No';
 }
 
 function numberValue(value: unknown) {
@@ -484,11 +514,19 @@ export function HomeDashboard() {
   const [affectationPeriod, setAffectationPeriod] = useState<[Dayjs, Dayjs] | null>(null);
   const [affectationProvince, setAffectationProvince] = useState<FilterValue>();
   const [affectationCanton, setAffectationCanton] = useState<FilterValue>();
+  const [exportingEvents, setExportingEvents] = useState(false);
+  const [exportingAffectations, setExportingAffectations] = useState(false);
 
   const institucionId = Number(datosLogin?.institucion_id || loginResponse?.usuario?.institucion_id || 0);
   const emergenciaId = Number(selectedEmergenciaId || datosLogin?.emergencia_id || localStorage.getItem('selectedEmergenciaId') || 0);
   const coeId = Number(datosLogin?.coe_id || 0);
   const mesaGrupoId = Number(datosLogin?.mesa_grupo_id || datosLogin?.mesa_id || 0);
+  const isAdministrator = isAdministratorUser([
+    datosLogin?.perfil_nombre,
+    datosLogin?.usuario_login,
+    datosLogin?.usuario,
+    datosLogin?.nombres,
+  ]);
 
   const loadCatalog = useCallback(async <T,>(endpoint: string) => {
     const response = await authFetch(`${API_BASE_URL}${endpoint}`);
@@ -660,6 +698,18 @@ export function HomeDashboard() {
     const variableId = affectationVariableId(variable);
     return [variableId, sumBy(filteredAfectaciones, (item) => item.variables?.[variableId])] as const;
   })), [afectacionVariables, filteredAfectaciones]);
+  const affectationPdfVariables = useMemo(() => afectacionVariables.map((variable) => ({
+    id: affectationVariableId(variable),
+    label: affectationVariableName(variable),
+  })), [afectacionVariables]);
+  const affectationPdfRows = useMemo(() => filteredAfectaciones.map((item) => ({
+    eventCount: numberValue(item.evento) || 0,
+    province: textOf(item.provincia) || 'Sin provincia',
+    values: Object.fromEntries(affectationPdfVariables.map((variable) => [
+      variable.id,
+      numberValue(item.variables?.[variable.id]) || 0,
+    ])),
+  })), [affectationPdfVariables, filteredAfectaciones]);
 
   const statusCounts = useMemo(() => countBy(filteredItems, estadoOf), [filteredItems]);
   const statusSummary = useMemo(() => {
@@ -717,8 +767,16 @@ export function HomeDashboard() {
     { title: 'Recinto', sorter: (left, right) => compareText(recintoOf(left), recintoOf(right)), render: (_value, item) => recintoOf(item) },
     { title: 'Sector', dataIndex: 'sector', sorter: (left, right) => compareText(left.sector, right.sector) },
     { title: 'Evento', sorter: (left, right) => compareText(tipoEventoOf(left), tipoEventoOf(right)), render: (_value, item) => tipoEventoOf(item) },
+    {
+      title: 'Simulado',
+      width: 90,
+      sorter: (left, right) => compareText(simuladoOf(left), simuladoOf(right)),
+      render: (_value, item) => <Tag color={simuladoOf(item) === 'Sí' ? 'green' : 'default'}>{simuladoOf(item)}</Tag>,
+    },
     { title: 'Fecha del Evento', sorter: (left, right) => (dateOf(left)?.valueOf() || 0) - (dateOf(right)?.valueOf() || 0), render: (_value, item) => dateOf(item)?.format('DD/MM/YYYY') || '' },
+    { title: 'Fecha Fin', sorter: (left, right) => (endDateOf(left)?.valueOf() || 0) - (endDateOf(right)?.valueOf() || 0), render: (_value, item) => endDateOf(item)?.format('DD/MM/YYYY HH:mm') || '' },
     { title: 'Estado', sorter: (left, right) => compareText(estadoOf(left), estadoOf(right)), render: (_value, item) => <StatusTag value={estadoOf(item)} /> },
+    { title: 'Situación actual', sorter: (left, right) => compareText(situacionOf(left), situacionOf(right)), render: (_value, item) => situacionOf(item) },
     { title: 'Descripcion general del Evento', sorter: (left, right) => compareText(descripcionOf(left), descripcionOf(right)), render: (_value, item) => descripcionOf(item) },
   ], []);
 
@@ -780,6 +838,105 @@ export function HomeDashboard() {
     }
   }
 
+  async function exportEventsToExcel() {
+    setExportingEvents(true);
+    setError(null);
+    try {
+      const { default: writeXlsxFile } = await import('write-excel-file/browser');
+      const headers = [
+        '#',
+        'Provincia',
+        'Cantón',
+        'Parroquia',
+        'Recinto',
+        'Sector',
+        'Evento',
+        'Simulado',
+        'Fecha del Evento',
+        'Fecha Fin',
+        'Estado',
+        'Situación actual',
+        'Descripción general del Evento',
+      ];
+      const rows = filteredItems.map((item, index) => [
+        index + 1,
+        provinciaOf(item),
+        cantonOf(item),
+        parroquiaOf(item),
+        recintoOf(item),
+        textOf(item.sector),
+        tipoEventoOf(item),
+        simuladoOf(item),
+        dateOf(item)?.format('DD/MM/YYYY') || '',
+        endDateOf(item)?.format('DD/MM/YYYY HH:mm') || '',
+        estadoOf(item),
+        situacionOf(item),
+        descripcionOf(item),
+      ]);
+
+      await writeXlsxFile([headers, ...rows], {
+        sheet: 'Eventos registrados',
+        columns: [
+          { width: 8 },
+          { width: 20 },
+          { width: 20 },
+          { width: 20 },
+          { width: 28 },
+          { width: 20 },
+          { width: 24 },
+          { width: 12 },
+          { width: 18 },
+          { width: 20 },
+          { width: 20 },
+          { width: 45 },
+          { width: 45 },
+        ],
+        stickyRowsCount: 1,
+      }).toFile(`detalle_eventos_${dayjs().format('YYYYMMDD_HHmm')}.xlsx`);
+    } catch {
+      setError('No se pudo exportar el detalle de eventos a Excel');
+    } finally {
+      setExportingEvents(false);
+    }
+  }
+
+  async function exportAffectationsToExcel() {
+    setExportingAffectations(true);
+    setError(null);
+    try {
+      const { default: writeXlsxFile } = await import('write-excel-file/browser');
+      const headers = [
+        '#',
+        'Provincia',
+        'Evento',
+        ...afectacionVariables.map(affectationVariableName),
+      ];
+      const rows = filteredAfectaciones.map((item, index) => [
+        index + 1,
+        textOf(item.provincia),
+        numberValue(item.evento) || 0,
+        ...afectacionVariables.map((variable) => (
+          numberValue(item.variables?.[affectationVariableId(variable)]) || 0
+        )),
+      ]);
+
+      await writeXlsxFile([headers, ...rows], {
+        sheet: 'Afectaciones por provincia',
+        columns: [
+          { width: 8 },
+          { width: 22 },
+          { width: 12 },
+          ...afectacionVariables.map(() => ({ width: 25 })),
+        ],
+        stickyRowsCount: 1,
+      }).toFile(`detalle_afectaciones_${dayjs().format('YYYYMMDD_HHmm')}.xlsx`);
+    } catch {
+      setError('No se pudo exportar el detalle de afectaciones a Excel');
+    } finally {
+      setExportingAffectations(false);
+    }
+  }
+
   return (
     <div className="home-dashboard home-dashboard--native">
       {error ? <Alert className="mb-3" type="warning" showIcon message={error} /> : null}
@@ -799,7 +956,33 @@ export function HomeDashboard() {
               <div>
                 <span className="dashboard-eyebrow">Visor Gestion electoral</span>
               </div>
-              <Button onClick={clearFilters}>Limpiar filtros</Button>
+              <div className="dashboard-filter-actions">
+                {isAdministrator && activeView === 'eventos' ? <DashboardPdfExportButton
+                  events={filteredItems}
+                  filename={`reporte_eventos_${dayjs().format('YYYYMMDD_HHmm')}.pdf`}
+                  title="Reporte de eventos adversos"
+                  filters={[
+                    { label: 'Periodo', value: eventPeriod ? `${eventPeriod[0].format('DD/MM/YYYY')} - ${eventPeriod[1].format('DD/MM/YYYY')}` : 'Todos' },
+                    { label: 'Provincia', value: provinceOptions.find((option) => String(option.value) === String(eventProvince))?.label || 'Todas' },
+                    { label: 'Cantón', value: cantonOptions.find((option) => String(option.value) === String(eventCanton))?.label || 'Todos' },
+                    { label: 'Parroquia', value: parishOptions.find((option) => String(option.value) === String(parish))?.label || 'Todas' },
+                    { label: 'Evento', value: eventOptions.find((option) => String(option.value) === String(eventType))?.label || 'Todos' },
+                    { label: 'Estado', value: statusOptions.find((option) => String(option.value) === String(status))?.label || 'Todos' },
+                  ]}
+                /> : null}
+                {isAdministrator && activeView === 'afectaciones' ? <AffectationsPdfExportButton
+                  rows={affectationPdfRows}
+                  variables={affectationPdfVariables}
+                  filename={`reporte_afectaciones_${dayjs().format('YYYYMMDD_HHmm')}.pdf`}
+                  title="Resumen de afectaciones"
+                  filters={[
+                    { label: 'Periodo', value: affectationPeriod ? `${affectationPeriod[0].format('DD/MM/YYYY')} - ${affectationPeriod[1].format('DD/MM/YYYY')}` : 'Todos' },
+                    { label: 'Provincia', value: provinceOptions.find((option) => String(option.value) === String(affectationProvince))?.label || 'Todas' },
+                    { label: 'Cantón', value: cantonOptions.find((option) => String(option.value) === String(affectationCanton))?.label || 'Todos' },
+                  ]}
+                /> : null}
+                <Button onClick={clearFilters}>Limpiar filtros</Button>
+              </div>
             </div>
             <div className="dashboard-filters">
               <label>
@@ -985,7 +1168,18 @@ export function HomeDashboard() {
               </section>
 
               <section className="dashboard-detail-table">
-                <SectionTitle>Detalle de afectaciones por provincia</SectionTitle>
+                <div className="dashboard-detail-table__header">
+                  <SectionTitle>Detalle de afectaciones por provincia</SectionTitle>
+                  {isAdministrator ? <Button
+                    type="primary"
+                    icon={<FileSpreadsheet size={16} />}
+                    loading={exportingAffectations}
+                    disabled={!filteredAfectaciones.length}
+                    onClick={() => void exportAffectationsToExcel()}
+                  >
+                    Exportar Excel
+                  </Button> : null}
+                </div>
                 <Table
                   rowKey={(item, index) => String(item.provincia_id || item.provincia || index)}
                   columns={afectacionesColumns}
@@ -999,14 +1193,25 @@ export function HomeDashboard() {
           )}
 
           {activeView === 'eventos' ? <section className="dashboard-detail-table">
-            <SectionTitle>Detalle de eventos registrados</SectionTitle>
+            <div className="dashboard-detail-table__header">
+              <SectionTitle>Detalle de eventos registrados</SectionTitle>
+              {isAdministrator ? <Button
+                type="primary"
+                icon={<FileSpreadsheet size={16} />}
+                loading={exportingEvents}
+                disabled={!filteredItems.length}
+                onClick={() => void exportEventsToExcel()}
+              >
+                Exportar Excel
+              </Button> : null}
+            </div>
             <Table
               rowKey={(item, index) => String(eventId(item) || index)}
               columns={tableColumns}
               dataSource={filteredItems}
               pagination={{ pageSize: 12, showSizeChanger: false }}
               size="small"
-              scroll={{ x: 1320 }}
+              scroll={{ x: 1800 }}
             />
           </section> : null}
         </div>

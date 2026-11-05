@@ -42,6 +42,8 @@ type EventoItem = {
   infraestructura_id?: Id | null;
   fecha_evento?: string;
   evento_fecha?: string;
+  fecha_cierre_evento?: string | null;
+  modificacion?: string | null;
   sector?: string;
   situacion?: string;
   descripcion?: string;
@@ -93,7 +95,7 @@ function infrastructureTypeIdForEmergency(emergencyName?: string | null) {
 const emptyEvento: EventoItem = {
   activo: true,
   alto_impacto: false,
-  fecha_evento: dayjs().format('YYYY-MM-DDTHH:mm:ssZ'),
+  evento_fecha: dayjs().format('YYYY-MM-DDTHH:mm:ssZ'),
   sector: '',
   situacion: '',
   descripcion: '',
@@ -233,19 +235,15 @@ function dateValueOf(item: EventoItem) {
   return item.evento_fecha || item.fecha_evento;
 }
 
-function normalizeText(value: string) {
-  return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase();
+function endDateValueOf(item: EventoItem) {
+  if (item.fecha_cierre_evento) return item.fecha_cierre_evento;
+  return Number(item.evento_atencion_estado_id ?? item.atencion_estado_id) === 3
+    ? item.modificacion
+    : undefined;
 }
 
-const EVENT_DATE_BY_EMERGENCY_ID: Record<number, string> = {
-  1: '2026-11-26', // PROCESO ELECTORAL 2026 PPL
-  2: '2026-11-27', // PROCESO ELECTORAL 2026 VC
-  3: '2026-11-29', // PROCESO ELECTORAL 2026 G
-};
-
-function eventDateForEmergencyId(emergencyId: number | null) {
-  const date = emergencyId ? EVENT_DATE_BY_EMERGENCY_ID[emergencyId] : undefined;
-  return date ? dayjs(date) : null;
+function normalizeText(value: string) {
+  return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase();
 }
 
 function atencionEstadoName(item: EventoItem, atencionEstados: CatalogItem[]) {
@@ -313,8 +311,6 @@ export function EventosAdversos() {
   const showProvinceColumn = [datosLogin?.perfil_nombre, datosLogin?.usuario_login, datosLogin?.usuario, datosLogin?.nombres]
     .some((value) => administratorAliases.some((alias) => String(value || '').trim().localeCompare(alias, 'es', { sensitivity: 'base' }) === 0));
   const cantonId = Number(datosLogin?.canton_id || 0);
-  const allowedEventDate = useMemo(() => eventDateForEmergencyId(selectedEmergenciaId), [selectedEmergenciaId]);
-
   const loadCatalog = useCallback(async <T,>(endpoint: string) => {
     const response = await authFetch(`${API_BASE_URL}${endpoint}`);
     if (!response.ok) throw new Error(endpoint);
@@ -442,7 +438,7 @@ export function EventosAdversos() {
       ...item,
       ...data,
       id: data.id || data.evento_id || item.id,
-      fecha_evento: data.evento_fecha || data.fecha_evento,
+      evento_fecha: data.evento_fecha || data.fecha_evento,
       descripcion: data.descripcion ?? data.observacion ?? item.descripcion,
       tipo_id: data.evento_tipo_id ?? data.tipo_id,
       causa_id: data.evento_causa_id ?? data.causa_id,
@@ -469,6 +465,7 @@ export function EventosAdversos() {
   }, [authFetch, loadCantones, loadInfraestructuras, loadParroquias, provincias]);
 
   const saveItem = useCallback(async (item: EventoItem) => {
+    const noRecintoSelected = institucionId === 151 && Number(item.infraestructura_id) === 0;
     const payload = {
       activo: item.activo ?? true,
       alto_impacto: item.alto_impacto ?? false,
@@ -482,7 +479,7 @@ export function EventosAdversos() {
       evento_origen_id: null,
       evento_subtipo_id: null,
       evento_tipo_id: toNumericId(item.tipo_id),
-      infraestructura_id: toNumericId(item.infraestructura_id),
+      infraestructura_id: noRecintoSelected ? 0 : toNumericId(item.infraestructura_id),
       latitud: toFiniteNumber(item.latitud),
       longitud: toFiniteNumber(item.longitud),
       parroquia_id: toNumericId(item.parroquia_id),
@@ -507,17 +504,13 @@ export function EventosAdversos() {
     ];
     const missing = required.find(([value]) => value === undefined || value === null || value === '' || Number.isNaN(value));
     if (missing) throw new Error(`Debe completar ${missing[1]}.`);
-    if (allowedEventDate && !dayjs(String(payload.evento_fecha)).isSame(allowedEventDate, 'day')) {
-      throw new Error(`La fecha del evento debe ser ${allowedEventDate.format('DD/MM/YYYY')}.`);
-    }
-
     const response = await authFetch(`${API_BASE_URL}/eventos${item.id ? `/${item.id}` : ''}`, {
       method: item.id ? 'PUT' : 'POST',
       body: JSON.stringify(payload),
     });
     if (!response.ok) throw new Error('No se pudo guardar el evento adverso');
     await loadItems();
-  }, [allowedEventDate, authFetch, cantonId, emergenciaId, loadItems, provinciaId]);
+  }, [authFetch, cantonId, emergenciaId, institucionId, loadItems, provinciaId]);
 
   const deleteItem = useCallback(async (id: Id) => {
     const response = await authFetch(`${API_BASE_URL}/eventos/${id}`, { method: 'DELETE' });
@@ -532,6 +525,7 @@ export function EventosAdversos() {
     { key: 'parroquia_nombre', header: 'Parroquia', render: (item) => String(item.parroquia_nombre || item.parroquia || ''), sortValue: (item) => item.parroquia_nombre || item.parroquia || '' },
     { key: 'infraestructura_nombre', header: 'Recinto', render: (item) => String(item.infraestructura_nombre || item.infraestructura || item.infraestructura_id || ''), sortValue: (item) => item.infraestructura_nombre || item.infraestructura || item.infraestructura_id || '' },
     { key: 'evento_fecha', header: 'Fecha', render: (item) => dateValueOf(item) ? dayjs(String(dateValueOf(item))).format('DD/MM/YYYY HH:mm') : '', sortValue: (item) => dateValueOf(item) ? dayjs(String(dateValueOf(item))).valueOf() : null },
+    { key: 'fecha_cierre_evento', header: 'Fecha Fin', render: (item) => endDateValueOf(item) ? dayjs(String(endDateValueOf(item))).format('DD/MM/YYYY HH:mm') : '', sortValue: (item) => endDateValueOf(item) ? dayjs(String(endDateValueOf(item))).valueOf() : null },
     { key: 'sector', header: 'Sector' },
     { key: 'evento_tipo_nombre', header: 'Tipo Evento', render: (item) => String(item.evento_tipo_nombre || item.tipo || ''), sortValue: (item) => item.evento_tipo_nombre || item.tipo || '' },
     {
@@ -672,10 +666,8 @@ export function EventosAdversos() {
                 format="YYYY-MM-DD HH:mm"
                 className="w-100"
                 disabled={readonly}
-                disabledDate={(current) => Boolean(allowedEventDate && !current.isSame(allowedEventDate, 'day'))}
-                defaultPickerValue={allowedEventDate || undefined}
                 value={dateValueOf(item) ? dayjs(String(dateValueOf(item))) : null}
-                onChange={(date) => update({ fecha_evento: date?.second(0).format('YYYY-MM-DDTHH:mm:ssZ') })}
+                onChange={(date) => update({ evento_fecha: date?.second(0).format('YYYY-MM-DDTHH:mm:ssZ') })}
               />
             </Form.Item>
           </Col>
@@ -906,7 +898,7 @@ export function EventosAdversos() {
           columns={columns}
           initialItem={{
             ...emptyEvento,
-            fecha_evento: undefined,
+            evento_fecha: undefined,
             provincia_id: provinciaId || null,
             canton_id: cantonId || null,
             emergencia_id: emergenciaId || null,

@@ -13,6 +13,9 @@
     "@vitejs/plugin-react": "latest",
     "antd": "^6.6.3",
     "bootstrap": "^5.3.8",
+    "html2canvas-pro": "^2.5.0",
+    "jspdf": "^4.2.1",
+    "jspdf-autotable": "^5.0.9",
     "leaflet": "^1.9.4",
     "lucide-react": "latest",
     "primeicons": "^8.0.0",
@@ -21,7 +24,8 @@
     "react-dom": "latest",
     "react-leaflet": "^5.0.0",
     "react-router-dom": "latest",
-    "vite": "latest"
+    "vite": "latest",
+    "write-excel-file": "^4.1.1"
   },
   "devDependencies": {
     "@types/leaflet": "^1.9.22",

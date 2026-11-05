@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { Button, Input, Modal, Space, message } from 'antd';
+import { Button, Input, Modal, Space, Spin, message } from 'antd';
 import { CaretDownOutlined, CaretUpOutlined, DeleteOutlined, EditOutlined, EyeOutlined, PlusOutlined, SearchOutlined, SwapOutlined } from '@ant-design/icons';
 import { useLocation } from 'react-router-dom';
 import { API_BASE_URL } from '../../config/env';
@@ -184,7 +184,9 @@ export function BaseCRUD<T extends { id?: number | string }>({
   }
 
   return (
-    <section className="base-crud">
+    <>
+      <Spin fullscreen spinning={saving} tip="Guardando en la base de datos..." />
+      <section className="base-crud" aria-busy={saving}>
       <div className="base-crud__header">
         <div>
           <span className="eyebrow">Gestion</span>
@@ -267,21 +269,28 @@ export function BaseCRUD<T extends { id?: number | string }>({
         </Space>
       </div>
 
-      <Modal
-        centered
-        destroyOnHidden
-        width={modalWidth}
-        open={modalOpen}
-        title={readonly ? `Ver ${itemLabel}` : currentItem.id ? `Editar ${itemLabel}` : `Nuevo ${itemLabel}`}
-        onCancel={() => setModalOpen(false)}
-        onOk={handleSave}
-        okText="Guardar"
-        cancelText="Cancelar"
-        confirmLoading={saving}
-        okButtonProps={{ disabled: readonly }}
-      >
-        {renderForm(currentItem, setCurrentItem, readonly)}
-      </Modal>
-    </section>
+        <Modal
+          centered
+          destroyOnHidden
+          width={modalWidth}
+          open={modalOpen}
+          title={readonly ? `Ver ${itemLabel}` : currentItem.id ? `Editar ${itemLabel}` : `Nuevo ${itemLabel}`}
+          closable={!saving}
+          keyboard={!saving}
+          maskClosable={!saving}
+          onCancel={() => {
+            if (!saving) setModalOpen(false);
+          }}
+          onOk={handleSave}
+          okText="Guardar"
+          cancelText="Cancelar"
+          confirmLoading={saving}
+          cancelButtonProps={{ disabled: saving }}
+          okButtonProps={{ disabled: readonly || saving }}
+        >
+          {renderForm(currentItem, setCurrentItem, readonly || saving)}
+        </Modal>
+      </section>
+    </>
   );
 }

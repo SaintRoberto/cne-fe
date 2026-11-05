@@ -380,9 +380,10 @@ export function EventoAfectacionesMatrix({ evento, onDirtyChange }: Props) {
   }], [variableColumns]);
 
   return (
-    <section className="evento-afectaciones-matrix">
+    <section className="evento-afectaciones-matrix" aria-busy={saving}>
+      <Spin fullscreen spinning={saving} tip="Guardando en la base de datos..." />
       <div className="evento-afectaciones-matrix__toolbar">
-        <Button type="primary" icon={<SaveOutlined />} loading={saving} disabled={readOnly || loading || !dirtyVariableIds.size} onClick={() => void saveMatrix()}>
+        <Button type="primary" icon={<SaveOutlined />} loading={saving} disabled={readOnly || loading || saving || !dirtyVariableIds.size} onClick={() => void saveMatrix()}>
           Guardar matriz
         </Button>
         <Typography.Text type="secondary">Registre la cantidad de infraestructura afectada y si posee el dato de estimación del costo por daños ingreselos:</Typography.Text>
@@ -402,11 +403,11 @@ export function EventoAfectacionesMatrix({ evento, onDirtyChange }: Props) {
               <div className="evento-afectaciones-editor-card__fields">
                 <label className="evento-afectaciones-field">
                   <span>Cantidad</span>
-                  <InputNumber className="w-100" min={0} disabled={readOnly} value={draft.cantidad} onChange={(value) => updateDraftValue({ ...draft, cantidad: Number(value || 0) })} />
+                  <InputNumber className="w-100" min={0} disabled={readOnly || saving} value={draft.cantidad} onChange={(value) => updateDraftValue({ ...draft, cantidad: Number(value || 0) })} />
                 </label>
                 <label className="evento-afectaciones-field">
                   <span>Costo Estimado</span>
-                  <InputNumber className="w-100" min={0} precision={2} prefix="$" disabled={readOnly} value={draft.costo} onChange={(value) => updateDraftValue({ ...draft, costo: Number(value || 0) })} />
+                  <InputNumber className="w-100" min={0} precision={2} prefix="$" disabled={readOnly || saving} value={draft.costo} onChange={(value) => updateDraftValue({ ...draft, costo: Number(value || 0) })} />
                 </label>
               </div>
             </div>
