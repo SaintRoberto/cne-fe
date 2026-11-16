@@ -85,13 +85,6 @@ type EventoItem = {
   [key: string]: unknown;
 };
 
-function infrastructureTypeIdForEmergency(emergencyName?: string | null) {
-  const normalizedName = String(emergencyName || '').trim().toUpperCase();
-  if (normalizedName.includes('PPL')) return 1;
-  if (normalizedName.includes('VOTO EN CASA') || /\bVC\b/.test(normalizedName)) return 2;
-  return 3;
-}
-
 const emptyEvento: EventoItem = {
   activo: true,
   alto_impacto: false,
@@ -275,7 +268,7 @@ async function readJson<T>(response: Response): Promise<T> {
 
 export function EventosAdversos() {
   const navigate = useNavigate();
-  const { authFetch, datosLogin, loginResponse, selectedEmergencia, selectedEmergenciaId } = useAuth();
+  const { authFetch, datosLogin, loginResponse, selectedEmergenciaId } = useAuth();
   const [items, setItems] = useState<EventoItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -298,10 +291,7 @@ export function EventosAdversos() {
   const [adminParroquias, setAdminParroquias] = useState<CatalogItem[]>([]);
 
   const emergenciaId = Number(selectedEmergenciaId || datosLogin?.emergencia_id || localStorage.getItem('selectedEmergenciaId') || 0);
-  const recintoInfraestructuraTipoId = useMemo(
-    () => infrastructureTypeIdForEmergency(selectedEmergencia?.emergencia || localStorage.getItem('selectedEmergenciaName')),
-    [selectedEmergencia?.emergencia],
-  );
+  const recintoInfraestructuraTipoId = toNumericId(emergenciaId) ?? 3;
   const institucionId = Number(datosLogin?.institucion_id || loginResponse?.usuario?.institucion_id || 0);
   const provinciaId = Number(datosLogin?.provincia_id || 0);
   const usuarioLogin = String(datosLogin?.usuario_login || datosLogin?.usuario || '').trim();
@@ -325,11 +315,18 @@ export function EventosAdversos() {
         ? `${API_BASE_URL}/eventos`
         : `${API_BASE_URL}/eventos/provincia/${provinciaId}/usuario/${encodeURIComponent(usuarioLogin)}`;
       const response = await authFetch(endpoint);
-      if (!response.ok) throw new Error('No se pudieron cargar los eventos adversos');
+      if (response.status === 401) throw new Error('Tu sesión ha expirado. Inicia sesión nuevamente.');
+      if (response.status === 403) throw new Error('No tienes permisos para consultar los eventos adversos.');
+      if (response.status >= 500) throw new Error('El servicio no está disponible temporalmente. Inténtalo nuevamente más tarde.');
+      if (!response.ok) throw new Error('No fue posible obtener los eventos adversos. Inténtalo nuevamente.');
       const data = unwrapArray<EventoItem>(await readJson<unknown>(response));
       setItems(data.map((item) => ({ ...item, id: item.id || item.evento_id })));
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : 'No se pudieron cargar los eventos adversos');
+      setError(loadError instanceof TypeError
+        ? 'No pudimos conectar con el sistema. Verifica tu conexión e inténtalo nuevamente.'
+        : loadError instanceof Error
+          ? loadError.message
+          : 'No fue posible obtener los eventos adversos. Inténtalo nuevamente.');
       setItems([]);
     } finally {
       setLoading(false);
@@ -525,7 +522,7 @@ export function EventosAdversos() {
     { key: 'parroquia_nombre', header: 'Parroquia', render: (item) => String(item.parroquia_nombre || item.parroquia || ''), sortValue: (item) => item.parroquia_nombre || item.parroquia || '' },
     { key: 'infraestructura_nombre', header: 'Recinto', render: (item) => String(item.infraestructura_nombre || item.infraestructura || item.infraestructura_id || ''), sortValue: (item) => item.infraestructura_nombre || item.infraestructura || item.infraestructura_id || '' },
     { key: 'evento_fecha', header: 'Fecha', render: (item) => dateValueOf(item) ? dayjs(String(dateValueOf(item))).format('DD/MM/YYYY HH:mm') : '', sortValue: (item) => dateValueOf(item) ? dayjs(String(dateValueOf(item))).valueOf() : null },
-    { key: 'fecha_cierre_evento', header: 'Fecha Fin', render: (item) => endDateValueOf(item) ? dayjs(String(endDateValueOf(item))).format('DD/MM/YYYY HH:mm') : '', sortValue: (item) => endDateValueOf(item) ? dayjs(String(endDateValueOf(item))).valueOf() : null },
+    { key: 'fecha_cierre_evento', header: 'Fecha Fin de Evento', render: (item) => endDateValueOf(item) ? dayjs(String(endDateValueOf(item))).format('DD/MM/YYYY HH:mm') : '', sortValue: (item) => endDateValueOf(item) ? dayjs(String(endDateValueOf(item))).valueOf() : null },
     { key: 'sector', header: 'Sector' },
     { key: 'evento_tipo_nombre', header: 'Tipo Evento', render: (item) => String(item.evento_tipo_nombre || item.tipo || ''), sortValue: (item) => item.evento_tipo_nombre || item.tipo || '' },
     {
@@ -790,7 +787,7 @@ export function EventosAdversos() {
 
   return (
     <Card className="functional-card">
-      {error ? <Alert className="mb-3" type="warning" showIcon message={error} description="Revise VITE_API_URL o disponibilidad del backend." /> : null}
+      {error ? <Alert className="mb-3" type="warning" showIcon message="No se pudieron cargar los eventos adversos" description={error} /> : null}
       <Spin spinning={loading}>
         {isAdmin ? (
           <div className="eventos-admin-filters">

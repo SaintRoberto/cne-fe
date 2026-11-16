@@ -8,6 +8,7 @@ type MapSelectorProps = {
   longitude?: number | null;
   readonly?: boolean;
   onChange: (coords: { latitude: number; longitude: number }) => void;
+  onAddressChange?: (address: string) => void;
 };
 
 type NominatimResult = {
@@ -32,7 +33,7 @@ function MapClickHandler({ readonly, onChange }: Pick<MapSelectorProps, 'readonl
   return null;
 }
 
-export function MapSelector({ latitude, longitude, readonly = false, onChange }: MapSelectorProps) {
+export function MapSelector({ latitude, longitude, readonly = false, onChange, onAddressChange }: MapSelectorProps) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<NominatimResult[]>([]);
   const [searching, setSearching] = useState(false);
@@ -83,7 +84,12 @@ export function MapSelector({ latitude, longitude, readonly = false, onChange }:
             <button
               key={`${result.lat}-${result.lon}`}
               type="button"
-              onClick={() => onChange({ latitude: Number(result.lat), longitude: Number(result.lon) })}
+              onClick={() => {
+                onChange({ latitude: Number(result.lat), longitude: Number(result.lon) });
+                onAddressChange?.(result.display_name);
+                setQuery(result.display_name);
+                setResults([]);
+              }}
             >
               {result.display_name}
             </button>

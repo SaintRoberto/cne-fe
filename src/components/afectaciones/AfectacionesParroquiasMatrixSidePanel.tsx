@@ -277,7 +277,7 @@ export function AfectacionesParroquiasMatrixSidePanel({
         </Space>
       </div>
 
-      {error ? <Alert className="mb-3" type="warning" showIcon message={error} description="Revise VITE_API_URL o disponibilidad del backend." /> : null}
+      {error ? <Alert className="mb-3" type="warning" showIcon message={error} description="No fue posible conectar con el servicio. Inténtalo nuevamente." /> : null}
 
       <Row gutter={16} className="afectaciones-matrix__filters">
         <Col xs={24} md={8}>

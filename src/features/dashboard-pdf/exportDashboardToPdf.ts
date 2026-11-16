@@ -187,7 +187,7 @@ function drawProvinceStackedChart(pdf: jsPDF, events: DashboardPdfEvent[], x: nu
   const chartX = x + labelWidth + 7;
   const chartWidth = width - labelWidth - 16;
   const rowHeight = (height - 20 - legendHeight) / provinces.length;
-  const barHeight = Math.max(1.3, Math.min(4, rowHeight * 0.48));
+  const barHeight = Math.max(2.2, Math.min(4.5, rowHeight * 0.72));
   const fontSize = Math.max(6.7, Math.min(9, rowHeight * 1.03));
   const max = Math.max(...provinces.map((province) => province.value), 1);
   provinces.forEach((province, index) => {
@@ -203,6 +203,15 @@ function drawProvinceStackedChart(pdf: jsPDF, events: DashboardPdfEvent[], x: nu
       const segmentWidth = chartWidth * amount / max;
       pdf.setFillColor(COLORS[typeIndex % COLORS.length]);
       pdf.rect(chartX + offset, rowY, segmentWidth, barHeight, 'F');
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(Math.max(8, Math.min(10.5, barHeight * 2.5)));
+      pdf.setTextColor('#ffffff');
+      pdf.text(
+        String(amount),
+        chartX + offset + segmentWidth / 2,
+        rowY + barHeight / 2 + Math.min(1.15, barHeight * 0.34),
+        { align: 'center' },
+      );
       offset += segmentWidth;
     });
   });

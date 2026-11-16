@@ -1,17 +1,29 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { ArrowRight, Eye, EyeOff, LockKeyhole, ShieldCheck } from 'lucide-react';
-import { Navigate, useNavigate } from 'react-router-dom';
+import { Navigate, useNavigate, useSearchParams } from 'react-router-dom';
 import { CneMark } from '../../components/brand/CneMark';
 import { useAuth } from '../../context/AuthContext';
 
 export function Login() {
   const { user, selectedEmergencia, mustChangePassword, login } = useAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [authNotice, setAuthNotice] = useState(() => (
+    searchParams.get('reason') === 'session-expired'
+      ? 'Tu sesión ha expirado por seguridad. Inicia sesión nuevamente para continuar.'
+      : ''
+  ));
+
+  useEffect(() => {
+    if (!authNotice) return undefined;
+    const timeoutId = window.setTimeout(() => setAuthNotice(''), 5000);
+    return () => window.clearTimeout(timeoutId);
+  }, [authNotice]);
 
   if (user) return <Navigate to={mustChangePassword ? '/cambiar-clave' : selectedEmergencia ? '/' : '/seleccionar-emergencia'} replace />;
 
@@ -43,6 +55,7 @@ export function Login() {
             <p>Sistema de Monitoreo de Incidentes y Eventos Adversos en Procesos Electorales</p>
           </div>
           <div className="login-card__heading"><span className="section-kicker">Bienvenido/a</span><h2>Ingresa a tu cuenta</h2></div>
+          {authNotice ? <div className="form-error" role="status">{authNotice}</div> : null}
           {error ? <div className="form-error" role="alert">{error}</div> : null}
           <form onSubmit={submit} className="login-form">
             <label htmlFor="username">Nombre de usuario<span>*</span></label>

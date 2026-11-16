@@ -219,6 +219,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }));
   }, []);
 
+  const logout = useCallback(() => {
+    localStorage.removeItem(AUTH_KEY);
+    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(USER_ID_KEY);
+    localStorage.removeItem(EMERGENCY_KEY);
+    localStorage.removeItem(SELECTED_EMERGENCY_KEY);
+    localStorage.removeItem('selectedEmergenciaName');
+    localStorage.removeItem('selectedDashboardUrl');
+    localStorage.removeItem('selectedDashboardEmergenciaId');
+    setLoginResponse(null);
+    setDatosLogin(null);
+    setUser(null);
+    setEmergencias([]);
+    setSelectedEmergencia(null);
+    setSelectedEmergenciaIdState(null);
+  }, []);
+
   const authFetch = useCallback(async (input: RequestInfo | URL, init: RequestInit = {}) => {
     const token = loginResponse?.token || localStorage.getItem(TOKEN_KEY);
     const method = String(init.method || 'GET').toUpperCase();
@@ -230,8 +247,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (isBodylessMethod) headers.delete('Content-Type');
     if (!isBodylessMethod && !headers.has('Content-Type') && init.body && !(init.body instanceof FormData)) headers.set('Content-Type', 'application/json');
     const requestInit = isBodylessMethod ? { ...init, method, body: undefined } : { ...init, method };
-    return fetch(input, { ...requestInit, headers });
-  }, [loginResponse?.token]);
+    const response = await fetch(input, { ...requestInit, headers });
+    if (response.status === 401 && token) {
+      logout();
+      if (window.location.pathname !== '/login') window.location.replace('/login?reason=session-expired');
+    }
+    return response;
+  }, [loginResponse?.token, logout]);
 
   const refreshEmergencias = useCallback(async () => {
     const response = await authFetch(`${API_BASE_URL}/emergencias`);
@@ -336,23 +358,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setDatosLogin(nextDatos);
     persist(nextLogin, nextDatos, user, emergencias, selectedEmergencia);
   }, [authFetch, datosLogin, emergencias, loginResponse, persist, selectedEmergencia, user]);
-
-  const logout = useCallback(() => {
-    localStorage.removeItem(AUTH_KEY);
-    localStorage.removeItem(TOKEN_KEY);
-    localStorage.removeItem(USER_ID_KEY);
-    localStorage.removeItem(EMERGENCY_KEY);
-    localStorage.removeItem(SELECTED_EMERGENCY_KEY);
-    localStorage.removeItem('selectedEmergenciaName');
-    localStorage.removeItem('selectedDashboardUrl');
-    localStorage.removeItem('selectedDashboardEmergenciaId');
-    setLoginResponse(null);
-    setDatosLogin(null);
-    setUser(null);
-    setEmergencias([]);
-    setSelectedEmergencia(null);
-    setSelectedEmergenciaIdState(null);
-  }, []);
 
   const getUnreadNotifications = useCallback(async () => {
     const response = await authFetch(`${API_BASE_URL}/notificaciones/no-leidas`);
